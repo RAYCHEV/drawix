@@ -4,6 +4,7 @@ const LINE_COLOR = "#2563eb";
 const POINT_COLOR = "#2563eb";
 const POLYGON_FILL_COLOR = "rgba(37, 99, 235, 0.25)";
 const LINE_WIDTH = 3;
+const ANGLE_SNAP_TOLERANCE = 5; // degrees - snap to 90° angles within this tolerance
 
 // ==================== State Management ====================
 const state = {
@@ -138,6 +139,49 @@ function findNearestPoint(point) {
     return nearest;
 }
 
+// Snap to 90-degree angles (0°, 90°, 180°, 270°)
+function snapToAngle(startPoint, endPoint) {
+    const dx = endPoint.x - startPoint.x;
+    const dy = endPoint.y - startPoint.y;
+    
+    // Calculate angle in degrees
+    const angleRad = Math.atan2(dy, dx);
+    const angleDeg = angleRad * (180 / Math.PI);
+    
+    // Normalize to 0-360
+    const normalizedAngle = ((angleDeg % 360) + 360) % 360;
+    
+    // Check if close to any 90° angle
+    const snapAngles = [0, 90, 180, 270];
+    let targetAngle = null;
+    
+    for (const snapAngle of snapAngles) {
+        const diff = Math.abs(normalizedAngle - snapAngle);
+        const wrappedDiff = Math.min(diff, 360 - diff);
+        
+        if (wrappedDiff <= ANGLE_SNAP_TOLERANCE) {
+            targetAngle = snapAngle;
+            break;
+        }
+    }
+    
+    // If no snap angle found, return original point
+    if (targetAngle === null) {
+        return endPoint;
+    }
+    
+    // Calculate snapped position
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const targetAngleRad = targetAngle * (Math.PI / 180);
+    
+    return {
+        x: startPoint.x + distance * Math.cos(targetAngleRad),
+        y: startPoint.y + distance * Math.sin(targetAngleRad),
+        isAngleSnapped: true,
+        snappedAngle: targetAngle
+    };
+}
+
 function renderCanvas() {
     const ctx = elements.canvas.getContext('2d');
     if (!ctx) return;
@@ -150,13 +194,16 @@ function renderCanvas() {
     ctx.translate(state.pan.x, state.pan.y);
     ctx.scale(state.zoom, state.zoom);
     
-    // Draw image
+    // Draw image (will be scaled by ctx.scale transformation)
     if (state.image) {
-        const maxWidth = elements.canvas.width / state.zoom - 40;
-        const maxHeight = elements.canvas.height / state.zoom - 40;
+        // Calculate initial fit size (at zoom=1.0)
+        const maxWidth = elements.canvas.width - 40;
+        const maxHeight = elements.canvas.height - 40;
         const scale = Math.min(maxWidth / state.image.width, maxHeight / state.image.height, 1);
         const width = state.image.width * scale;
         const height = state.image.height * scale;
+        
+        // Position in transformed space (will be scaled by zoom)
         const x = (elements.canvas.width / state.zoom - width) / 2;
         const y = (elements.canvas.height / state.zoom - height) / 2;
         
@@ -177,10 +224,10 @@ function renderCanvas() {
         }
     });
     
-    // Draw lines
+    // Draw lines with fixed visual width (not affected by zoom)
     state.lines.forEach(line => {
         ctx.strokeStyle = LINE_COLOR;
-        ctx.lineWidth = LINE_WIDTH;
+        ctx.lineWidth = LINE_WIDTH / state.zoom;  // Fixed screen width
         ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(line.startPoint.x, line.startPoint.y);
@@ -219,37 +266,76 @@ function renderCanvas() {
         }
     });
     
-    // Draw current line preview
+    // Draw current line preview with fixed visual width
     if (state.currentLineStart && state.cursorPosition) {
         const snapTarget = state.nearestSnapPoint || state.cursorPosition;
         
-        ctx.strokeStyle = LINE_COLOR;
-        ctx.lineWidth = LINE_WIDTH;
+        // Check if angle snapped
+        const isAngleSnapped = state.cursorPosition.isAngleSnapped;
+        
+        ctx.strokeStyle = isAngleSnapped ? '#16a34a' : LINE_COLOR; // Green when angle-snapped
+        ctx.lineWidth = LINE_WIDTH / state.zoom;  // Fixed screen width
         ctx.lineCap = 'round';
-        ctx.setLineDash([5, 5]);
+        
+        // Solid line when angle-snapped, dashed otherwise
+        if (!isAngleSnapped) {
+            ctx.setLineDash([5 / state.zoom, 5 / state.zoom]);  // Fixed dash size
+        }
+        
         ctx.beginPath();
         ctx.moveTo(state.currentLineStart.x, state.currentLineStart.y);
         ctx.lineTo(snapTarget.x, snapTarget.y);
         ctx.stroke();
         ctx.setLineDash([]);
+        
+        // Show angle indicator when angle-snapped
+        if (isAngleSnapped) {
+            const midX = (state.currentLineStart.x + snapTarget.x) / 2;
+            const midY = (state.currentLineStart.y + snapTarget.y) / 2;
+            
+            ctx.save();
+            ctx.scale(1 / state.zoom, 1 / state.zoom);
+            
+            const angleText = `${state.cursorPosition.snappedAngle}°`;
+            ctx.font = '600 14px Inter, sans-serif';
+            const metrics = ctx.measureText(angleText);
+            const padding = 4;
+            
+            const bgX = midX * state.zoom - metrics.width / 2 - padding;
+            const bgY = midY * state.zoom - 10 - padding;
+            const bgWidth = metrics.width + padding * 2;
+            const bgHeight = 20 + padding * 2;
+            
+            ctx.fillStyle = 'rgba(22, 163, 74, 0.9)'; // Green background
+            ctx.beginPath();
+            ctx.roundRect(bgX, bgY, bgWidth, bgHeight, 4);
+            ctx.fill();
+            
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(angleText, midX * state.zoom, midY * state.zoom);
+            
+            ctx.restore();
+        }
     }
     
-    // Draw points
+    // Draw points with fixed visual size (not affected by zoom)
     state.points.forEach(point => {
         const isHovered = state.nearestSnapPoint?.id === point.id;
         const isStart = state.currentLineStart?.id === point.id;
         
         if (isHovered) {
             ctx.strokeStyle = POINT_COLOR;
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 2 / state.zoom;  // Fixed screen width
             ctx.beginPath();
-            ctx.arc(point.x, point.y, 7, 0, Math.PI * 2);
+            ctx.arc(point.x, point.y, 7 / state.zoom, 0, Math.PI * 2);  // Fixed screen size
             ctx.stroke();
         }
         
         ctx.fillStyle = isStart ? '#dc2626' : POINT_COLOR;
         ctx.beginPath();
-        ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+        ctx.arc(point.x, point.y, 5 / state.zoom, 0, Math.PI * 2);  // Fixed screen size
         ctx.fill();
     });
     
@@ -402,8 +488,29 @@ function handleCanvasClick(e) {
     if (e.shiftKey || !state.image) return;
     
     const point = getCanvasPoint(e.clientX, e.clientY);
-    const snappedPoint = findNearestPoint(point);
-    const actualPoint = snappedPoint || point;
+    
+    // Point snapping takes priority
+    let snappedPoint = findNearestPoint(point);
+    let actualPoint = snappedPoint || point;
+    
+    // Apply angle snapping if drawing a line and not point-snapped
+    if (state.currentLineStart && !snappedPoint) {
+        const angleSnappedPoint = snapToAngle(state.currentLineStart, point);
+        if (angleSnappedPoint.isAngleSnapped) {
+            // Check again if angle-snapped point is near an existing point
+            const nearestToSnapped = findNearestPoint(angleSnappedPoint);
+            if (nearestToSnapped) {
+                actualPoint = nearestToSnapped;
+            } else {
+                // Create a proper point object with ID for angle-snapped position
+                actualPoint = {
+                    x: angleSnappedPoint.x,
+                    y: angleSnappedPoint.y,
+                    id: `point-${Date.now()}-${Math.random()}`
+                };
+            }
+        }
+    }
     
     if (!state.currentLineStart) {
         state.currentLineStart = actualPoint;
@@ -461,7 +568,20 @@ function handleMouseMove(e) {
     const point = getCanvasPoint(e.clientX, e.clientY);
     state.cursorPosition = point;
     
-    const nearest = findNearestPoint(point);
+    // First check for point snapping (takes priority over angle snapping)
+    let nearest = findNearestPoint(point);
+    
+    // If drawing a line and not snapping to a point, apply angle snapping
+    if (state.currentLineStart && !nearest) {
+        const snappedPoint = snapToAngle(state.currentLineStart, point);
+        if (snappedPoint.isAngleSnapped) {
+            state.cursorPosition = snappedPoint;
+            // Check again if angle-snapped position is near an existing point
+            // Magnetic snap takes priority even after angle snap
+            nearest = findNearestPoint(snappedPoint);
+        }
+    }
+    
     state.nearestSnapPoint = nearest;
     state.hoveredPoint = nearest;
     
@@ -479,22 +599,65 @@ function handleMouseUp() {
     elements.canvas.classList.remove('panning');
 }
 
+// Helper function to zoom while keeping a specific point fixed
+function zoomToPoint(zoomFactor, mouseX, mouseY) {
+    const oldZoom = state.zoom;
+    const newZoom = Math.max(0.1, Math.min(5, oldZoom * zoomFactor));
+    
+    // Convert mouse position to image coordinates (before zoom)
+    const imageX = (mouseX - state.pan.x) / oldZoom;
+    const imageY = (mouseY - state.pan.y) / oldZoom;
+    
+    // Calculate new pan to keep same image point under mouse
+    state.pan.x = mouseX - imageX * newZoom;
+    state.pan.y = mouseY - imageY * newZoom;
+    
+    state.zoom = newZoom;
+}
+
 function handleWheel(e) {
     e.preventDefault();
+    
+    // Block zoom if drawing has started (at least one point exists)
+    if (state.points.length > 0) {
+        return;
+    }
+    
+    // Get mouse position relative to canvas
+    const rect = elements.canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    state.zoom = Math.max(0.1, Math.min(5, state.zoom * delta));
+    zoomToPoint(delta, mouseX, mouseY);
     updateUI();
     renderCanvas();
 }
 
 function handleZoomIn() {
-    state.zoom = Math.min(5, state.zoom * 1.2);
+    // Block zoom if drawing has started
+    if (state.points.length > 0) {
+        return;
+    }
+    
+    // Zoom to canvas center when using buttons
+    const centerX = elements.canvas.width / 2;
+    const centerY = elements.canvas.height / 2;
+    zoomToPoint(1.2, centerX, centerY);
     updateUI();
     renderCanvas();
 }
 
 function handleZoomOut() {
-    state.zoom = Math.max(0.1, state.zoom / 1.2);
+    // Block zoom if drawing has started
+    if (state.points.length > 0) {
+        return;
+    }
+    
+    // Zoom to canvas center when using buttons
+    const centerX = elements.canvas.width / 2;
+    const centerY = elements.canvas.height / 2;
+    zoomToPoint(1 / 1.2, centerX, centerY);
     updateUI();
     renderCanvas();
 }
@@ -636,6 +799,11 @@ function updateUI() {
     elements.recalibrateBtn.disabled = !state.calibration;
     elements.undoBtn.disabled = state.lines.length === 0;
     elements.clearBtn.disabled = state.points.length === 0;
+    
+    // Disable zoom controls when drawing has started
+    const hasPoints = state.points.length > 0;
+    elements.zoomInBtn.disabled = hasPoints;
+    elements.zoomOutBtn.disabled = hasPoints;
 }
 
 function resizeCanvas() {
