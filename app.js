@@ -406,7 +406,8 @@ function checkForClosedPolygon() {
                 points: polygonPoints,
                 lines: polygonLines,
                 areaInSquareMeters: area,
-                isClosed: true
+                isClosed: true,
+                name: `Polygon ${state.polygons.length + 1}`
             };
             
             state.polygons.push(newPolygon);
@@ -747,6 +748,80 @@ function handleCalibrationSubmit(e) {
     showToast(`Calibration complete. Scale: 1px = ${(1 / state.calibration.pixelsPerMeter).toFixed(4)}m`);
 }
 
+// ==================== Polygon Rename Functions ====================
+function attachPolygonRenameListeners() {
+    const nameElements = elements.polygonsList.querySelectorAll('.polygon-name-text');
+    const inputElements = elements.polygonsList.querySelectorAll('.polygon-name-input');
+    
+    nameElements.forEach(nameEl => {
+        nameEl.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const polygonId = this.getAttribute('data-polygon-id');
+            const polygonItem = this.closest('.polygon-item');
+            const nameText = polygonItem.querySelector('.polygon-name-text');
+            const nameInput = polygonItem.querySelector('.polygon-name-input');
+            
+            nameText.classList.add('hidden');
+            nameInput.classList.remove('hidden');
+            nameInput.focus();
+            nameInput.select();
+        });
+    });
+    
+    inputElements.forEach(inputEl => {
+        inputEl.addEventListener('blur', function() {
+            finishPolygonRename(this);
+        });
+        
+        inputEl.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                finishPolygonRename(this);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                cancelPolygonRename(this);
+            }
+        });
+    });
+}
+
+function finishPolygonRename(inputEl) {
+    const polygonId = inputEl.getAttribute('data-polygon-id');
+    const polygon = state.polygons.find(p => p.id === polygonId);
+    const polygonItem = inputEl.closest('.polygon-item');
+    const nameText = polygonItem.querySelector('.polygon-name-text');
+    
+    if (polygon) {
+        const newName = inputEl.value.trim();
+        if (newName) {
+            polygon.name = newName;
+            nameText.textContent = newName;
+        } else {
+            // If empty, restore original name
+            const index = state.polygons.findIndex(p => p.id === polygonId);
+            polygon.name = `Polygon ${index + 1}`;
+            nameText.textContent = polygon.name;
+        }
+    }
+    
+    inputEl.classList.add('hidden');
+    nameText.classList.remove('hidden');
+}
+
+function cancelPolygonRename(inputEl) {
+    const polygonItem = inputEl.closest('.polygon-item');
+    const nameText = polygonItem.querySelector('.polygon-name-text');
+    const polygonId = inputEl.getAttribute('data-polygon-id');
+    const polygon = state.polygons.find(p => p.id === polygonId);
+    
+    if (polygon) {
+        inputEl.value = polygon.name || nameText.textContent;
+    }
+    
+    inputEl.classList.add('hidden');
+    nameText.classList.remove('hidden');
+}
+
 // ==================== UI Updates ====================
 function updateUI() {
     // Update zoom level
@@ -776,12 +851,21 @@ function updateUI() {
     
     // Update polygons list
     if (state.polygons.length > 0) {
-        elements.polygonsList.innerHTML = state.polygons.map((polygon, index) => `
-            <div class="polygon-item">
-                <div class="polygon-name">Polygon ${index + 1}</div>
+        elements.polygonsList.innerHTML = state.polygons.map((polygon, index) => {
+            const displayName = polygon.name || `Polygon ${index + 1}`;
+            return `
+            <div class="polygon-item" data-polygon-id="${polygon.id}">
+                <div class="polygon-name-editable" data-polygon-id="${polygon.id}">
+                    <span class="polygon-name-text">${displayName}</span>
+                    <input type="text" class="polygon-name-input hidden" value="${displayName}" data-polygon-id="${polygon.id}">
+                </div>
                 <div class="polygon-area">${polygon.areaInSquareMeters.toFixed(2)} m²</div>
             </div>
-        `).join('');
+        `;
+        }).join('');
+        
+        // Attach event listeners for renaming
+        attachPolygonRenameListeners();
     } else {
         elements.polygonsList.innerHTML = '<p class="info-text">No polygons detected</p>';
     }

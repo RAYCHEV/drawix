@@ -334,11 +334,39 @@ body {
     margin-bottom: 0;
 }
 
-.polygon-name {
+.polygon-name-editable {
+    position: relative;
+    margin-bottom: 0.25rem;
+}
+
+.polygon-name-text {
     font-size: 0.75rem;
     font-weight: 600;
     color: var(--text-primary);
-    margin-bottom: 0.25rem;
+    cursor: pointer;
+    display: inline-block;
+    padding: 0.125rem 0.25rem;
+    border-radius: var(--radius);
+    transition: background-color 0.2s;
+}
+
+.polygon-name-text:hover {
+    background-color: var(--surface);
+    color: var(--primary);
+}
+
+.polygon-name-input {
+    font-size: 0.75rem;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--text-primary);
+    background-color: var(--surface-elevated);
+    border: 1px solid var(--primary);
+    border-radius: var(--radius);
+    padding: 0.125rem 0.25rem;
+    width: 100%;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
 .polygon-area {
