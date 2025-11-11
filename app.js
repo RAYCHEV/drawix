@@ -302,6 +302,14 @@ function renderCanvas() {
     state.lines.forEach(line => {
         const isPipe = line.isPipe === true;
         const isSubtract = line.isSubtract === true;
+        
+        // Check if this line is part of a subtract polygon (don't show label for subtract lines)
+        const isPartOfSubtractPolygon = state.polygons.some(polygon => 
+            polygon.subtracts && polygon.subtracts.some(subtract => 
+                subtract.lines && subtract.lines.some(l => l.id === line.id)
+            )
+        );
+        
         ctx.strokeStyle = isPipe ? PIPE_COLOR : (isSubtract ? SUBTRACT_COLOR : LINE_COLOR);
         ctx.lineWidth = LINE_WIDTH / state.zoom;  // Fixed screen width
         ctx.lineCap = 'round';
@@ -310,8 +318,8 @@ function renderCanvas() {
         ctx.lineTo(line.endPoint.x, line.endPoint.y);
         ctx.stroke();
         
-        // Draw length label
-        if (line.lengthInMeters !== undefined) {
+        // Draw length label (skip labels for lines that are part of subtract polygons)
+        if (line.lengthInMeters !== undefined && !isPartOfSubtractPolygon && line.lengthInMeters > 0) {
             const midX = (line.startPoint.x + line.endPoint.x) / 2;
             const midY = (line.startPoint.y + line.endPoint.y) / 2;
             
@@ -816,11 +824,12 @@ function handleMouseUp(e) {
         }
         
         // Create lines for the rectangle
+        const isSubtract = state.currentTool === 'subtract';
         const rectangleLines = [
-            { id: `line-${Date.now()}-1`, startPoint: topLeft, endPoint: topRight },
-            { id: `line-${Date.now()}-2`, startPoint: topRight, endPoint: bottomRight },
-            { id: `line-${Date.now()}-3`, startPoint: bottomRight, endPoint: bottomLeft },
-            { id: `line-${Date.now()}-4`, startPoint: bottomLeft, endPoint: topLeft }
+            { id: `line-${Date.now()}-1`, startPoint: topLeft, endPoint: topRight, isSubtract: isSubtract },
+            { id: `line-${Date.now()}-2`, startPoint: topRight, endPoint: bottomRight, isSubtract: isSubtract },
+            { id: `line-${Date.now()}-3`, startPoint: bottomRight, endPoint: bottomLeft, isSubtract: isSubtract },
+            { id: `line-${Date.now()}-4`, startPoint: bottomLeft, endPoint: topLeft, isSubtract: isSubtract }
         ];
         
         // Add lines to state
