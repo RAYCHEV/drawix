@@ -83,6 +83,29 @@
                 </div>
             </div>
             
+            <!-- Tool Selection -->
+            <div class="panel-section">
+                <h2 class="panel-section-title">Tools</h2>
+                <div class="tools-grid">
+                    <button class="tool-btn active" id="toolLine" data-tool="line" title="Line Tool">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        <span>Line</span>
+                    </button>
+                    <button class="tool-btn" id="toolRectangle" data-tool="rectangle" title="Rectangle Tool">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
+                        <span>Rectangle</span>
+                    </button>
+                    <button class="tool-btn" id="toolPipe" data-tool="pipe" title="Pipe Tool">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                        <span>Pipe</span>
+                    </button>
+                    <button class="tool-btn" id="toolSubtract" data-tool="subtract" title="Subtract Tool - Draw polygon to subtract from existing polygon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
+                        <span>Subtract</span>
+                    </button>
+                </div>
+            </div>
+            
             <!-- Calibration Info -->
             <div class="panel-section" id="calibrationSection">
                 <h2 class="panel-section-title">Calibration</h2>
@@ -107,6 +130,17 @@
                 </button>
                 <div class="collapsible-content" id="polygonsList">
                     <p class="info-text">No polygons detected</p>
+                </div>
+            </div>
+            
+            <!-- Pipes List -->
+            <div class="panel-section collapsible">
+                <button class="collapsible-header" id="pipesHeader">
+                    <h2 class="panel-section-title">Pipes</h2>
+                    <svg class="chevron" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="collapsible-content collapsed" id="pipesList">
+                    <p class="info-text">No pipes yet</p>
                 </div>
             </div>
             

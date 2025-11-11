@@ -1,8 +1,12 @@
 // ==================== Constants ====================
 const SNAP_RADIUS = 12;
 const LINE_COLOR = "#2563eb";
+const PIPE_COLOR = "#16a34a";
+const RECTANGLE_COLOR = "#7c3aed";
+const SUBTRACT_COLOR = "#dc2626";
 const POINT_COLOR = "#2563eb";
 const POLYGON_FILL_COLOR = "rgba(37, 99, 235, 0.25)";
+const SUBTRACT_FILL_COLOR = "rgba(220, 38, 38, 0.25)";
 const LINE_WIDTH = 3;
 const ANGLE_SNAP_TOLERANCE = 5; // degrees - snap to 90° angles within this tolerance
 
@@ -16,7 +20,10 @@ const state = {
     lines: [],
     polygons: [],
     calibration: null,
+    currentTool: 'line', // 'line', 'rectangle', 'pipe', 'subtract'
     currentLineStart: null,
+    currentRectangleStart: null,
+    isDrawingRectangle: false,
     hoveredPoint: null,
     isPanning: false,
     panStart: { x: 0, y: 0 },
@@ -45,9 +52,15 @@ const elements = {
     fileInput: document.getElementById('fileInput'),
     
     // Tool panel
+    toolLine: document.getElementById('toolLine'),
+    toolRectangle: document.getElementById('toolRectangle'),
+    toolPipe: document.getElementById('toolPipe'),
+    toolSubtract: document.getElementById('toolSubtract'),
     calibrationInfo: document.getElementById('calibrationInfo'),
     totalArea: document.getElementById('totalArea'),
     polygonsList: document.getElementById('polygonsList'),
+    pipesList: document.getElementById('pipesList'),
+    pipesHeader: document.getElementById('pipesHeader'),
     pointsList: document.getElementById('pointsList'),
     
     // Controls
@@ -105,6 +118,45 @@ function calculatePolygonArea(points, calibration) {
     
     const areaInSquareMeters = area / (calibration.pixelsPerMeter * calibration.pixelsPerMeter);
     return areaInSquareMeters;
+}
+
+// Check if a point is inside a polygon using ray casting algorithm
+function isPointInPolygon(point, polygonPoints) {
+    let inside = false;
+    for (let i = 0, j = polygonPoints.length - 1; i < polygonPoints.length; j = i++) {
+        const xi = polygonPoints[i].x;
+        const yi = polygonPoints[i].y;
+        const xj = polygonPoints[j].x;
+        const yj = polygonPoints[j].y;
+        
+        const intersect = ((yi > point.y) !== (yj > point.y)) &&
+            (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
+// Check if a polygon overlaps with another polygon (simplified - checks if center is inside)
+function doesPolygonOverlap(newPolygonPoints, existingPolygon) {
+    // Check if center of new polygon is inside existing polygon
+    const centerX = newPolygonPoints.reduce((sum, p) => sum + p.x, 0) / newPolygonPoints.length;
+    const centerY = newPolygonPoints.reduce((sum, p) => sum + p.y, 0) / newPolygonPoints.length;
+    const center = { x: centerX, y: centerY };
+    
+    return isPointInPolygon(center, existingPolygon.points);
+}
+
+// Find polygon that contains the new polygon
+function findContainingPolygon(newPolygonPoints) {
+    for (const polygon of state.polygons) {
+        if (polygon.isClosed && polygon.points.length >= 3) {
+            // Check if center of new polygon is inside this polygon
+            if (doesPolygonOverlap(newPolygonPoints, polygon)) {
+                return polygon;
+            }
+        }
+    }
+    return null;
 }
 
 // ==================== Canvas Functions ====================
@@ -221,12 +273,36 @@ function renderCanvas() {
             }
             ctx.closePath();
             ctx.fill();
+            
+            // Draw subtract polygons (holes) if any
+            if (polygon.subtracts && polygon.subtracts.length > 0) {
+                polygon.subtracts.forEach(subtract => {
+                    ctx.fillStyle = SUBTRACT_FILL_COLOR;
+                    ctx.beginPath();
+                    ctx.moveTo(subtract.points[0].x, subtract.points[0].y);
+                    for (let i = 1; i < subtract.points.length; i++) {
+                        ctx.lineTo(subtract.points[i].x, subtract.points[i].y);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    // Draw subtract outline
+                    ctx.strokeStyle = SUBTRACT_COLOR;
+                    ctx.lineWidth = LINE_WIDTH / state.zoom;
+                    ctx.stroke();
+                });
+            }
         }
     });
     
+    // Rectangles are now drawn as polygons, but we can style them differently if needed
+    // The polygon rendering above will handle rectangles too
+    
     // Draw lines with fixed visual width (not affected by zoom)
     state.lines.forEach(line => {
-        ctx.strokeStyle = LINE_COLOR;
+        const isPipe = line.isPipe === true;
+        const isSubtract = line.isSubtract === true;
+        ctx.strokeStyle = isPipe ? PIPE_COLOR : (isSubtract ? SUBTRACT_COLOR : LINE_COLOR);
         ctx.lineWidth = LINE_WIDTH / state.zoom;  // Fixed screen width
         ctx.lineCap = 'round';
         ctx.beginPath();
@@ -252,7 +328,7 @@ function renderCanvas() {
             const bgWidth = metrics.width + padding * 2;
             const bgHeight = 24 + padding * 2;
             
-            ctx.fillStyle = 'rgba(37, 99, 235, 0.9)';
+            ctx.fillStyle = isPipe ? 'rgba(22, 163, 74, 0.9)' : (isSubtract ? 'rgba(220, 38, 38, 0.9)' : 'rgba(37, 99, 235, 0.9)');
             ctx.beginPath();
             ctx.roundRect(bgX, bgY, bgWidth, bgHeight, 6);
             ctx.fill();
@@ -266,14 +342,46 @@ function renderCanvas() {
         }
     });
     
+    // Draw current rectangle preview
+    if (state.currentRectangleStart && state.cursorPosition) {
+        const x1 = state.currentRectangleStart.x;
+        const y1 = state.currentRectangleStart.y;
+        const x2 = state.cursorPosition.x;
+        const y2 = state.cursorPosition.y;
+        
+        const x = Math.min(x1, x2);
+        const y = Math.min(y1, y2);
+        const width = Math.abs(x2 - x1);
+        const height = Math.abs(y2 - y1);
+        
+        const isSubtract = state.currentTool === 'subtract';
+        ctx.strokeStyle = isSubtract ? SUBTRACT_COLOR : RECTANGLE_COLOR;
+        ctx.lineWidth = LINE_WIDTH / state.zoom;
+        ctx.setLineDash([5 / state.zoom, 5 / state.zoom]);
+        ctx.beginPath();
+        ctx.roundRect(x, y, width, height, 0);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Fill preview for subtract mode
+        if (isSubtract) {
+            ctx.fillStyle = SUBTRACT_FILL_COLOR;
+            ctx.beginPath();
+            ctx.roundRect(x, y, width, height, 0);
+            ctx.fill();
+        }
+    }
+    
     // Draw current line preview with fixed visual width
     if (state.currentLineStart && state.cursorPosition) {
         const snapTarget = state.nearestSnapPoint || state.cursorPosition;
         
         // Check if angle snapped
         const isAngleSnapped = state.cursorPosition.isAngleSnapped;
+        const isPipe = state.currentTool === 'pipe';
+        const isSubtract = state.currentTool === 'subtract';
         
-        ctx.strokeStyle = isAngleSnapped ? '#16a34a' : LINE_COLOR; // Green when angle-snapped
+        ctx.strokeStyle = isAngleSnapped ? '#16a34a' : (isPipe ? PIPE_COLOR : (isSubtract ? SUBTRACT_COLOR : LINE_COLOR));
         ctx.lineWidth = LINE_WIDTH / state.zoom;  // Fixed screen width
         ctx.lineCap = 'round';
         
@@ -346,7 +454,10 @@ function renderCanvas() {
 function checkForClosedPolygon() {
     const pointConnections = new Map();
     
+    // Ignore pipes when detecting polygons - pipes only calculate length
     state.lines.forEach(line => {
+        if (line.isPipe === true) return; // Skip pipes
+        
         if (!pointConnections.has(line.startPoint.id)) {
             pointConnections.set(line.startPoint.id, new Set());
         }
@@ -396,10 +507,41 @@ function checkForClosedPolygon() {
                 .filter(Boolean);
             
             const polygonLines = state.lines.filter(line =>
-                polygonPath.includes(line.startPoint.id) && polygonPath.includes(line.endPoint.id)
+                polygonPath.includes(line.startPoint.id) && polygonPath.includes(line.endPoint.id) && !line.isPipe
             );
             
             const area = calculatePolygonArea(polygonPoints, state.calibration);
+            
+            // Check if subtract mode is active
+            if (state.currentTool === 'subtract') {
+                const containingPolygon = findContainingPolygon(polygonPoints);
+                if (containingPolygon) {
+                    // Subtract area from containing polygon
+                    containingPolygon.areaInSquareMeters = Math.max(0, containingPolygon.areaInSquareMeters - area);
+                    
+                    // Add subtract polygon to containing polygon's subtract list
+                    if (!containingPolygon.subtracts) {
+                        containingPolygon.subtracts = [];
+                    }
+                    
+                    const subtractPolygon = {
+                        id: `subtract-${Date.now()}`,
+                        points: polygonPoints,
+                        lines: polygonLines,
+                        areaInSquareMeters: area,
+                        isClosed: true
+                    };
+                    
+                    containingPolygon.subtracts.push(subtractPolygon);
+                    
+                    showToast(`Area subtracted! Remaining: ${containingPolygon.areaInSquareMeters.toFixed(2)} m²`);
+                    updateUI();
+                    break;
+                } else {
+                    showToast('No polygon found to subtract from. Draw polygon inside an existing polygon.');
+                    break;
+                }
+            }
             
             const newPolygon = {
                 id: `polygon-${Date.now()}`,
@@ -488,8 +630,20 @@ function loadImage(dataUrl) {
 function handleCanvasClick(e) {
     if (e.shiftKey || !state.image) return;
     
+    // Rectangle tool uses drag (mousedown/mouseup), not click
+    if ((state.currentTool === 'rectangle' || state.currentTool === 'subtract') && state.isDrawingRectangle) {
+        return;
+    }
+    
+    // Subtract tool with rectangle uses drag
+    if (state.currentTool === 'subtract' && !state.currentLineStart) {
+        // Allow subtract tool to work with lines, but rectangle uses drag
+        // This will be handled in handleMouseDown/handleMouseUp
+    }
+    
     const point = getCanvasPoint(e.clientX, e.clientY);
     
+    // Handle line and pipe tools
     // Point snapping takes priority
     let snappedPoint = findNearestPoint(point);
     let actualPoint = snappedPoint || point;
@@ -522,7 +676,9 @@ function handleCanvasClick(e) {
         const newLine = {
             id: `line-${Date.now()}`,
             startPoint: state.currentLineStart,
-            endPoint: actualPoint
+            endPoint: actualPoint,
+            isPipe: state.currentTool === 'pipe',
+            isSubtract: state.currentTool === 'subtract'
         };
         
         if (!state.points.find(p => p.id === actualPoint.id)) {
@@ -537,7 +693,11 @@ function handleCanvasClick(e) {
             newLine.lengthInMeters = pixelLength / state.calibration.pixelsPerMeter;
             
             state.lines.push(newLine);
-            checkForClosedPolygon();
+            // Only check for polygons if it's not a pipe
+            // For subtract mode, check for closed polygon to subtract
+            if (newLine.isPipe !== true) {
+                checkForClosedPolygon();
+            }
         }
         
         state.currentLineStart = null;
@@ -553,6 +713,19 @@ function handleMouseDown(e) {
         state.isPanning = true;
         state.panStart = { x: e.clientX - state.pan.x, y: e.clientY - state.pan.y };
         elements.canvas.classList.add('panning');
+        return;
+    }
+    
+    // Handle rectangle tool drag start (including subtract mode)
+    if (e.button === 0 && (state.currentTool === 'rectangle' || state.currentTool === 'subtract') && !state.currentRectangleStart) {
+        e.preventDefault();
+        const point = getCanvasPoint(e.clientX, e.clientY);
+        state.currentRectangleStart = point;
+        state.isDrawingRectangle = true;
+        if (!state.points.find(p => p.id === point.id)) {
+            state.points.push(point);
+        }
+        renderCanvas();
     }
 }
 
@@ -569,11 +742,17 @@ function handleMouseMove(e) {
     const point = getCanvasPoint(e.clientX, e.clientY);
     state.cursorPosition = point;
     
+    // Handle rectangle preview
+    if (state.currentRectangleStart) {
+        renderCanvas();
+        return;
+    }
+    
     // First check for point snapping (takes priority over angle snapping)
     let nearest = findNearestPoint(point);
     
     // If drawing a line and not snapping to a point, apply angle snapping
-    if (state.currentLineStart && !nearest) {
+    if (state.currentLineStart && !nearest && (state.currentTool === 'line' || state.currentTool === 'pipe' || state.currentTool === 'subtract')) {
         const snappedPoint = snapToAngle(state.currentLineStart, point);
         if (snappedPoint.isAngleSnapped) {
             state.cursorPosition = snappedPoint;
@@ -595,9 +774,133 @@ function handleMouseMove(e) {
     renderCanvas();
 }
 
-function handleMouseUp() {
+function handleMouseUp(e) {
+    const wasDrawingRectangle = state.isDrawingRectangle;
     state.isPanning = false;
     elements.canvas.classList.remove('panning');
+    
+    // Handle rectangle tool drag end (including subtract mode)
+    if ((state.currentTool === 'rectangle' || state.currentTool === 'subtract') && state.currentRectangleStart && state.isDrawingRectangle && e.button === 0) {
+        e.preventDefault();
+        const point = getCanvasPoint(e.clientX, e.clientY);
+        
+        if (!state.points.find(p => p.id === point.id)) {
+            state.points.push(point);
+        }
+        
+        // Create rectangle as a polygon with 4 points
+        const x1 = state.currentRectangleStart.x;
+        const y1 = state.currentRectangleStart.y;
+        const x2 = point.x;
+        const y2 = point.y;
+        
+        // Create 4 corner points for the rectangle
+        const topLeft = { x: Math.min(x1, x2), y: Math.min(y1, y2), id: state.currentRectangleStart.id };
+        const topRight = { x: Math.max(x1, x2), y: Math.min(y1, y2), id: `point-${Date.now()}-${Math.random()}` };
+        const bottomRight = { x: Math.max(x1, x2), y: Math.max(y1, y2), id: point.id };
+        const bottomLeft = { x: Math.min(x1, x2), y: Math.max(y1, y2), id: `point-${Date.now()}-${Math.random()}` };
+        
+        // Add new points if they don't exist
+        [topRight, bottomLeft].forEach(p => {
+            if (!state.points.find(pt => pt.id === p.id)) {
+                state.points.push(p);
+            }
+        });
+        
+        const rectanglePoints = [topLeft, topRight, bottomRight, bottomLeft];
+        
+        // Calculate area
+        let area = 0;
+        if (state.calibration) {
+            area = calculatePolygonArea(rectanglePoints, state.calibration);
+        }
+        
+        // Create lines for the rectangle
+        const rectangleLines = [
+            { id: `line-${Date.now()}-1`, startPoint: topLeft, endPoint: topRight },
+            { id: `line-${Date.now()}-2`, startPoint: topRight, endPoint: bottomRight },
+            { id: `line-${Date.now()}-3`, startPoint: bottomRight, endPoint: bottomLeft },
+            { id: `line-${Date.now()}-4`, startPoint: bottomLeft, endPoint: topLeft }
+        ];
+        
+        // Add lines to state
+        rectangleLines.forEach(line => {
+            if (state.calibration) {
+                const pixelLength = calculateDistance(line.startPoint, line.endPoint);
+                line.lengthInMeters = pixelLength / state.calibration.pixelsPerMeter;
+            }
+            state.lines.push(line);
+        });
+        
+        // Check if subtract mode is active
+        if (state.currentTool === 'subtract') {
+            const containingPolygon = findContainingPolygon(rectanglePoints);
+            if (containingPolygon) {
+                // Subtract area from containing polygon
+                containingPolygon.areaInSquareMeters = Math.max(0, containingPolygon.areaInSquareMeters - area);
+                
+                // Add subtract polygon to containing polygon's subtract list
+                if (!containingPolygon.subtracts) {
+                    containingPolygon.subtracts = [];
+                }
+                
+                const subtractPolygon = {
+                    id: `subtract-${Date.now()}`,
+                    points: rectanglePoints,
+                    lines: rectangleLines,
+                    areaInSquareMeters: area,
+                    isClosed: true,
+                    isRectangle: true
+                };
+                
+                containingPolygon.subtracts.push(subtractPolygon);
+                
+                showToast(`Area subtracted! Remaining: ${containingPolygon.areaInSquareMeters.toFixed(2)} m²`);
+                state.currentRectangleStart = null;
+                state.isDrawingRectangle = false;
+                updateUI();
+                renderCanvas();
+                return;
+            } else {
+                showToast('No polygon found to subtract from. Draw rectangle inside an existing polygon.');
+                state.currentRectangleStart = null;
+                state.isDrawingRectangle = false;
+                updateUI();
+                renderCanvas();
+                return;
+            }
+        }
+        
+        // Create polygon from rectangle
+        const newPolygon = {
+            id: `polygon-${Date.now()}`,
+            points: rectanglePoints,
+            lines: rectangleLines,
+            areaInSquareMeters: area,
+            isClosed: true,
+            name: `Rectangle ${state.polygons.length + 1}`,
+            isRectangle: true
+        };
+        
+        state.polygons.push(newPolygon);
+        
+        if (area > 0) {
+            showToast(`Rectangle created! Area: ${area.toFixed(2)} m²`);
+        }
+        
+        state.currentRectangleStart = null;
+        state.isDrawingRectangle = false;
+        updateUI();
+        renderCanvas();
+        
+        // Prevent click event from firing
+        setTimeout(() => {
+            state.isDrawingRectangle = false;
+        }, 100);
+        return;
+    }
+    
+    state.isDrawingRectangle = false;
 }
 
 // Helper function to zoom while keeping a specific point fixed
@@ -675,12 +978,34 @@ function handleClearAll() {
     state.lines = [];
     state.polygons = [];
     state.currentLineStart = null;
+    state.currentRectangleStart = null;
     state.hoveredPoint = null;
     updateUI();
     renderCanvas();
 }
 
 function handleUndoLastLine() {
+    // Check polygons first (including rectangles)
+    if (state.polygons.length > 0) {
+        const lastPolygon = state.polygons[state.polygons.length - 1];
+        state.polygons.pop();
+        
+        // Remove lines associated with this polygon
+        if (lastPolygon.lines) {
+            lastPolygon.lines.forEach(line => {
+                const index = state.lines.findIndex(l => l.id === line.id);
+                if (index !== -1) {
+                    state.lines.splice(index, 1);
+                }
+            });
+        }
+        
+        updateUI();
+        renderCanvas();
+        return;
+    }
+    
+    // Then check standalone lines
     if (state.lines.length === 0) return;
     
     const lastLine = state.lines[state.lines.length - 1];
@@ -700,6 +1025,7 @@ function handleRecalibrate() {
     state.points = [];
     state.polygons = [];
     state.currentLineStart = null;
+    state.currentRectangleStart = null;
     updateUI();
     renderCanvas();
     showToast('Calibration reset. Draw a new reference line to recalibrate');
@@ -822,8 +1148,46 @@ function cancelPolygonRename(inputEl) {
     nameText.classList.remove('hidden');
 }
 
+// ==================== Tool Selection ====================
+function updateToolButtons() {
+    document.querySelectorAll('.tool-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Before calibration, only Line tool is available
+    const hasCalibration = state.calibration !== null;
+    
+    if (state.currentTool === 'line') {
+        elements.toolLine.classList.add('active');
+    } else if (state.currentTool === 'rectangle') {
+        elements.toolRectangle.classList.add('active');
+    } else if (state.currentTool === 'pipe') {
+        elements.toolPipe.classList.add('active');
+    }
+    
+    // Disable Rectangle, Pipe, and Subtract tools before calibration
+    elements.toolRectangle.disabled = !hasCalibration;
+    elements.toolPipe.disabled = !hasCalibration;
+    elements.toolSubtract.disabled = !hasCalibration;
+    
+    // If current tool is disabled, switch to Line
+    if (!hasCalibration && (state.currentTool === 'rectangle' || state.currentTool === 'pipe' || state.currentTool === 'subtract')) {
+        state.currentTool = 'line';
+        elements.toolLine.classList.add('active');
+        state.currentLineStart = null;
+        state.currentRectangleStart = null;
+        state.isDrawingRectangle = false;
+    }
+    
+    if (state.currentTool === 'subtract') {
+        elements.toolSubtract.classList.add('active');
+    }
+}
+
 // ==================== UI Updates ====================
 function updateUI() {
+    // Update tool buttons
+    updateToolButtons();
     // Update zoom level
     elements.zoomLevel.textContent = `${Math.round(state.zoom * 100)}%`;
     
@@ -845,7 +1209,7 @@ function updateUI() {
         elements.calibrationInfo.innerHTML = '<p class="info-text">Draw a reference line first</p>';
     }
     
-    // Update total area
+    // Update total area (polygons include rectangles now)
     const totalArea = state.polygons.reduce((sum, p) => sum + p.areaInSquareMeters, 0);
     elements.totalArea.textContent = `${totalArea.toFixed(2)} m²`;
     
@@ -870,6 +1234,26 @@ function updateUI() {
         elements.polygonsList.innerHTML = '<p class="info-text">No polygons detected</p>';
     }
     
+    // Update pipes list
+    const pipes = state.lines.filter(line => line.isPipe === true);
+    if (pipes.length > 0) {
+        const totalLength = pipes.reduce((sum, pipe) => sum + (pipe.lengthInMeters || 0), 0);
+        elements.pipesList.innerHTML = `
+            <div class="pipes-total">
+                <div class="pipes-total-label">Total Length</div>
+                <div class="pipes-total-value">${totalLength.toFixed(2)} m</div>
+            </div>
+            ${pipes.map((pipe, index) => `
+                <div class="pipe-item">
+                    <div class="pipe-name">Pipe ${index + 1}</div>
+                    <div class="pipe-length">${pipe.lengthInMeters ? pipe.lengthInMeters.toFixed(2) : 'N/A'} m</div>
+                </div>
+            `).join('')}
+        `;
+    } else {
+        elements.pipesList.innerHTML = '<p class="info-text">No pipes yet</p>';
+    }
+    
     // Update points list
     if (state.points.length > 0) {
         elements.pointsList.innerHTML = state.points.map((point, index) => `
@@ -881,7 +1265,7 @@ function updateUI() {
     
     // Update button states
     elements.recalibrateBtn.disabled = !state.calibration;
-    elements.undoBtn.disabled = state.lines.length === 0;
+    elements.undoBtn.disabled = state.lines.length === 0 && state.polygons.length === 0;
     elements.clearBtn.disabled = state.points.length === 0;
     
     // Disable zoom controls when drawing has started
@@ -915,7 +1299,15 @@ function initEventListeners() {
     elements.canvas.addEventListener('mousedown', handleMouseDown);
     elements.canvas.addEventListener('mousemove', handleMouseMove);
     elements.canvas.addEventListener('mouseup', handleMouseUp);
-    elements.canvas.addEventListener('mouseleave', handleMouseUp);
+    elements.canvas.addEventListener('mouseleave', (e) => {
+        // Cancel rectangle drawing if mouse leaves canvas
+        if (state.isDrawingRectangle) {
+            state.currentRectangleStart = null;
+            state.isDrawingRectangle = false;
+            renderCanvas();
+        }
+        handleMouseUp(e);
+    });
     elements.canvas.addEventListener('wheel', handleWheel);
     elements.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     
@@ -938,12 +1330,53 @@ function initEventListeners() {
         toggleCollapsible(elements.polygonsHeader, elements.polygonsList);
     });
     
+    elements.pipesHeader.addEventListener('click', () => {
+        toggleCollapsible(elements.pipesHeader, elements.pipesList);
+    });
+    
     elements.pointsHeader.addEventListener('click', () => {
         toggleCollapsible(elements.pointsHeader, elements.pointsList);
     });
     
     elements.instructionsHeader.addEventListener('click', () => {
         toggleCollapsible(elements.instructionsHeader, document.getElementById('instructionsContent'));
+    });
+    
+    // Tool selection
+    elements.toolLine.addEventListener('click', () => {
+        state.currentTool = 'line';
+        state.currentLineStart = null;
+        state.currentRectangleStart = null;
+        state.isDrawingRectangle = false;
+        updateToolButtons();
+        renderCanvas();
+    });
+    
+    elements.toolRectangle.addEventListener('click', () => {
+        state.currentTool = 'rectangle';
+        state.currentLineStart = null;
+        state.currentRectangleStart = null;
+        state.isDrawingRectangle = false;
+        updateToolButtons();
+        renderCanvas();
+    });
+    
+    elements.toolPipe.addEventListener('click', () => {
+        state.currentTool = 'pipe';
+        state.currentLineStart = null;
+        state.currentRectangleStart = null;
+        state.isDrawingRectangle = false;
+        updateToolButtons();
+        renderCanvas();
+    });
+    
+    elements.toolSubtract.addEventListener('click', () => {
+        state.currentTool = 'subtract';
+        state.currentLineStart = null;
+        state.currentRectangleStart = null;
+        state.isDrawingRectangle = false;
+        updateToolButtons();
+        renderCanvas();
     });
     
     // Window resize
@@ -954,6 +1387,7 @@ function initEventListeners() {
 function init() {
     // Set initial collapsible states
     elements.polygonsHeader.setAttribute('aria-expanded', 'true');
+    elements.pipesHeader.setAttribute('aria-expanded', 'false');
     elements.pointsHeader.setAttribute('aria-expanded', 'false');
     elements.instructionsHeader.setAttribute('aria-expanded', 'false');
     
