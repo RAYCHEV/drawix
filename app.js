@@ -24,6 +24,7 @@ const state = {
     currentLineStart: null,
     currentRectangleStart: null,
     isDrawingRectangle: false,
+    justFinishedRectangle: false, // Flag to prevent starting new drawing immediately after rectangle
     hoveredPoint: null,
     isPanning: false,
     panStart: { x: 0, y: 0 },
@@ -543,10 +544,16 @@ function checkForClosedPolygon() {
                     containingPolygon.subtracts.push(subtractPolygon);
                     
                     showToast(`Area subtracted! Remaining: ${containingPolygon.areaInSquareMeters.toFixed(2)} m²`);
+                    // Stop drawing after successful subtract
+                    state.currentLineStart = null;
+                    state.cursorPosition = null; // Clear cursor position to prevent line preview
                     updateUI();
                     break;
                 } else {
                     showToast('No polygon found to subtract from. Draw polygon inside an existing polygon.');
+                    // Stop drawing after failed subtract attempt
+                    state.currentLineStart = null;
+                    state.cursorPosition = null; // Clear cursor position to prevent line preview
                     break;
                 }
             }
@@ -567,6 +574,13 @@ function checkForClosedPolygon() {
             
             break;
         }
+    }
+    
+    // In subtract mode, if no closed polygon was found after completing a line,
+    // stop drawing to prevent continuous line drawing
+    if (state.currentTool === 'subtract' && state.currentLineStart !== null) {
+        state.currentLineStart = null;
+        state.cursorPosition = null; // Clear cursor position to prevent line preview
     }
 }
 
@@ -639,7 +653,17 @@ function handleCanvasClick(e) {
     if (e.shiftKey || !state.image) return;
     
     // Rectangle tool uses drag (mousedown/mouseup), not click
-    if ((state.currentTool === 'rectangle' || state.currentTool === 'subtract') && state.isDrawingRectangle) {
+    if (state.currentTool === 'rectangle') {
+        return;
+    }
+    
+    // Rectangle tool uses drag (mousedown/mouseup), not click
+    if ((state.currentTool === 'subtract') && state.isDrawingRectangle) {
+        return;
+    }
+    
+    // Prevent starting new drawing immediately after finishing a rectangle
+    if (state.justFinishedRectangle) {
         return;
     }
     
@@ -706,9 +730,19 @@ function handleCanvasClick(e) {
             if (newLine.isPipe !== true) {
                 checkForClosedPolygon();
             }
+            
+            // In subtract mode, always stop drawing after completing a line
+            // This ensures drawing stops even if no closed polygon was found
+            if (state.currentTool === 'subtract') {
+                state.currentLineStart = null;
+                state.cursorPosition = null; // Clear cursor position to prevent line preview
+            }
         }
         
-        state.currentLineStart = null;
+        // Always stop drawing after completing a line (for non-subtract tools)
+        if (state.currentTool !== 'subtract') {
+            state.currentLineStart = null;
+        }
     }
     
     updateUI();
@@ -748,13 +782,37 @@ function handleMouseMove(e) {
     }
     
     const point = getCanvasPoint(e.clientX, e.clientY);
-    state.cursorPosition = point;
     
     // Handle rectangle preview
     if (state.currentRectangleStart) {
+        state.cursorPosition = point; // Only set cursor position when drawing rectangle
         renderCanvas();
         return;
     }
+    
+    // For rectangle tool, don't show line preview - only rectangle preview when dragging
+    if (state.currentTool === 'rectangle') {
+        state.cursorPosition = null; // Don't set cursor position for rectangle tool when not drawing
+        state.nearestSnapPoint = null;
+        state.hoveredPoint = null;
+        elements.canvas.classList.remove('snap-cursor');
+        renderCanvas();
+        return;
+    }
+    
+    // For subtract tool, only show preview when actively drawing (rectangle or line)
+    // Don't show line preview when not actively drawing
+    if (state.currentTool === 'subtract' && !state.currentRectangleStart && !state.currentLineStart) {
+        state.cursorPosition = null; // Don't set cursor position for subtract tool when not drawing
+        state.nearestSnapPoint = null;
+        state.hoveredPoint = null;
+        elements.canvas.classList.remove('snap-cursor');
+        renderCanvas();
+        return;
+    }
+    
+    // Set cursor position for other tools or when actively drawing
+    state.cursorPosition = point;
     
     // First check for point snapping (takes priority over angle snapping)
     let nearest = findNearestPoint(point);
@@ -866,14 +924,28 @@ function handleMouseUp(e) {
                 
                 showToast(`Area subtracted! Remaining: ${containingPolygon.areaInSquareMeters.toFixed(2)} m²`);
                 state.currentRectangleStart = null;
+                state.currentLineStart = null;
+                state.cursorPosition = null; // Clear cursor position to prevent line preview
                 state.isDrawingRectangle = false;
+                state.justFinishedRectangle = true; // Set flag to prevent immediate new drawing
+                // Clear flag after a short delay to allow normal drawing to resume
+                setTimeout(() => {
+                    state.justFinishedRectangle = false;
+                }, 100);
                 updateUI();
                 renderCanvas();
                 return;
             } else {
                 showToast('No polygon found to subtract from. Draw rectangle inside an existing polygon.');
                 state.currentRectangleStart = null;
+                state.currentLineStart = null;
+                state.cursorPosition = null; // Clear cursor position to prevent line preview
                 state.isDrawingRectangle = false;
+                state.justFinishedRectangle = true; // Set flag to prevent immediate new drawing
+                // Clear flag after a short delay to allow normal drawing to resume
+                setTimeout(() => {
+                    state.justFinishedRectangle = false;
+                }, 100);
                 updateUI();
                 renderCanvas();
                 return;
@@ -898,14 +970,16 @@ function handleMouseUp(e) {
         }
         
         state.currentRectangleStart = null;
+        state.currentLineStart = null;
+        state.cursorPosition = null; // Clear cursor position to prevent line preview
         state.isDrawingRectangle = false;
+        state.justFinishedRectangle = true; // Set flag to prevent immediate new drawing
+        // Clear flag after a short delay to allow normal drawing to resume
+        setTimeout(() => {
+            state.justFinishedRectangle = false;
+        }, 100);
         updateUI();
         renderCanvas();
-        
-        // Prevent click event from firing
-        setTimeout(() => {
-            state.isDrawingRectangle = false;
-        }, 100);
         return;
     }
     
@@ -989,6 +1063,7 @@ function handleClearAll() {
     state.currentLineStart = null;
     state.currentRectangleStart = null;
     state.hoveredPoint = null;
+    state.justFinishedRectangle = false;
     updateUI();
     renderCanvas();
 }
@@ -1357,6 +1432,7 @@ function initEventListeners() {
         state.currentLineStart = null;
         state.currentRectangleStart = null;
         state.isDrawingRectangle = false;
+        state.justFinishedRectangle = false;
         updateToolButtons();
         renderCanvas();
     });
@@ -1366,6 +1442,7 @@ function initEventListeners() {
         state.currentLineStart = null;
         state.currentRectangleStart = null;
         state.isDrawingRectangle = false;
+        state.justFinishedRectangle = false;
         updateToolButtons();
         renderCanvas();
     });
@@ -1375,6 +1452,7 @@ function initEventListeners() {
         state.currentLineStart = null;
         state.currentRectangleStart = null;
         state.isDrawingRectangle = false;
+        state.justFinishedRectangle = false;
         updateToolButtons();
         renderCanvas();
     });
@@ -1384,6 +1462,7 @@ function initEventListeners() {
         state.currentLineStart = null;
         state.currentRectangleStart = null;
         state.isDrawingRectangle = false;
+        state.justFinishedRectangle = false;
         updateToolButtons();
         renderCanvas();
     });
