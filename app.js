@@ -30,7 +30,9 @@ const state = {
     panStart: { x: 0, y: 0 },
     cursorPosition: null,
     nearestSnapPoint: null,
-    pendingCalibrationLine: null
+    pendingCalibrationLine: null,
+    showLengthLabels: true, // Toggle for showing/hiding line length labels
+    angleSnapEnabled: true // Toggle for 90-degree angle snapping
 };
 
 // ==================== DOM Elements ====================
@@ -68,6 +70,8 @@ const elements = {
     recalibrateBtn: document.getElementById('recalibrateBtn'),
     undoBtn: document.getElementById('undoBtn'),
     clearBtn: document.getElementById('clearBtn'),
+    toggleLengthLabelsBtn: document.getElementById('toggleLengthLabelsBtn'),
+    toggleAngleSnapBtn: document.getElementById('toggleAngleSnapBtn'),
     
     // Modal
     calibrationModal: document.getElementById('calibrationModal'),
@@ -320,7 +324,7 @@ function renderCanvas() {
         ctx.stroke();
         
         // Draw length label (skip labels for lines that are part of subtract polygons)
-        if (line.lengthInMeters !== undefined && !isPartOfSubtractPolygon && line.lengthInMeters > 0) {
+        if (state.showLengthLabels && line.lengthInMeters !== undefined && !isPartOfSubtractPolygon && line.lengthInMeters > 0) {
             const midX = (line.startPoint.x + line.endPoint.x) / 2;
             const midY = (line.startPoint.y + line.endPoint.y) / 2;
             
@@ -681,7 +685,7 @@ function handleCanvasClick(e) {
     let actualPoint = snappedPoint || point;
     
     // Apply angle snapping if drawing a line and not point-snapped
-    if (state.currentLineStart && !snappedPoint) {
+    if (state.currentLineStart && !snappedPoint && state.angleSnapEnabled) {
         const angleSnappedPoint = snapToAngle(state.currentLineStart, point);
         if (angleSnappedPoint.isAngleSnapped) {
             // Check again if angle-snapped point is near an existing point
@@ -818,7 +822,7 @@ function handleMouseMove(e) {
     let nearest = findNearestPoint(point);
     
     // If drawing a line and not snapping to a point, apply angle snapping
-    if (state.currentLineStart && !nearest && (state.currentTool === 'line' || state.currentTool === 'pipe' || state.currentTool === 'subtract')) {
+    if (state.currentLineStart && !nearest && state.angleSnapEnabled && (state.currentTool === 'line' || state.currentTool === 'pipe' || state.currentTool === 'subtract')) {
         const snappedPoint = snapToAngle(state.currentLineStart, point);
         if (snappedPoint.isAngleSnapped) {
             state.cursorPosition = snappedPoint;
@@ -1115,6 +1119,20 @@ function handleRecalibrate() {
     showToast('Calibration reset. Draw a new reference line to recalibrate');
 }
 
+function handleToggleLengthLabels() {
+    state.showLengthLabels = !state.showLengthLabels;
+    updateUI();
+    renderCanvas();
+    showToast(state.showLengthLabels ? 'Length labels shown' : 'Length labels hidden');
+}
+
+function handleToggleAngleSnap() {
+    state.angleSnapEnabled = !state.angleSnapEnabled;
+    updateUI();
+    renderCanvas();
+    showToast(state.angleSnapEnabled ? '90° angle snap enabled' : '90° angle snap disabled');
+}
+
 // ==================== Calibration Modal ====================
 function openCalibrationModal() {
     elements.calibrationModal.showModal();
@@ -1352,6 +1370,10 @@ function updateUI() {
     elements.undoBtn.disabled = state.lines.length === 0 && state.polygons.length === 0;
     elements.clearBtn.disabled = state.points.length === 0;
     
+    // Update toggle button states
+    elements.toggleLengthLabelsBtn.classList.toggle('active', state.showLengthLabels);
+    elements.toggleAngleSnapBtn.classList.toggle('active', state.angleSnapEnabled);
+    
     // Disable zoom controls when drawing has started
     const hasPoints = state.points.length > 0;
     elements.zoomInBtn.disabled = hasPoints;
@@ -1404,6 +1426,8 @@ function initEventListeners() {
     elements.recalibrateBtn.addEventListener('click', handleRecalibrate);
     elements.undoBtn.addEventListener('click', handleUndoLastLine);
     elements.clearBtn.addEventListener('click', handleClearAll);
+    elements.toggleLengthLabelsBtn.addEventListener('click', handleToggleLengthLabels);
+    elements.toggleAngleSnapBtn.addEventListener('click', handleToggleAngleSnap);
     
     // Calibration modal
     elements.calibrationForm.addEventListener('submit', handleCalibrationSubmit);

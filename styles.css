@@ -547,6 +547,16 @@ body {
     color: var(--danger);
 }
 
+.control-btn.active {
+    background-color: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.control-btn.active:hover:not(:disabled) {
+    background-color: var(--primary-dark);
+}
+
 .control-btn svg {
     flex-shrink: 0;
 }
