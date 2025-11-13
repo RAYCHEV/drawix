@@ -334,9 +334,16 @@ body {
     margin-bottom: 0;
 }
 
+.polygon-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.25rem;
+}
+
 .polygon-name-editable {
     position: relative;
-    margin-bottom: 0.25rem;
+    flex: 1;
 }
 
 .polygon-name-text {
@@ -373,6 +380,38 @@ body {
     font-size: 0.875rem;
     color: var(--primary);
     font-weight: 500;
+    margin-left: 0.5rem;
+}
+
+.polygon-merge-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    width: 100%;
+    padding: 0.5rem;
+    margin-top: 0.5rem;
+    background-color: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.polygon-merge-btn:hover {
+    background-color: var(--border-light);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.polygon-merge-btn:active {
+    background-color: var(--border);
+}
+
+.polygon-merge-btn svg {
+    flex-shrink: 0;
 }
 
 /* Pipes list */

@@ -1250,6 +1250,79 @@ function cancelPolygonRename(inputEl) {
     nameText.classList.remove('hidden');
 }
 
+// ==================== Polygon Merge Functions ====================
+function attachPolygonMergeListeners() {
+    const mergeButtons = elements.polygonsList.querySelectorAll('.polygon-merge-btn');
+    
+    mergeButtons.forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const polygonId = this.getAttribute('data-polygon-id');
+            handleMergePolygon(polygonId);
+        });
+    });
+}
+
+function handleMergePolygon(lastPolygonId) {
+    if (state.polygons.length < 2) {
+        showToast('Need at least 2 polygons to merge');
+        return;
+    }
+    
+    const lastIndex = state.polygons.findIndex(p => p.id === lastPolygonId);
+    if (lastIndex === -1 || lastIndex !== state.polygons.length - 1) {
+        showToast('Can only merge the last polygon');
+        return;
+    }
+    
+    const previousIndex = lastIndex - 1;
+    const previousPolygon = state.polygons[previousIndex];
+    const lastPolygon = state.polygons[lastIndex];
+    
+    // Merge areas (keep previous polygon's name)
+    previousPolygon.areaInSquareMeters += lastPolygon.areaInSquareMeters;
+    
+    // Merge lines from last polygon into previous polygon (keep all lines visible)
+    if (lastPolygon.lines && lastPolygon.lines.length > 0) {
+        if (!previousPolygon.lines) {
+            previousPolygon.lines = [];
+        }
+        // Add lines from last polygon to previous polygon
+        lastPolygon.lines.forEach(line => {
+            previousPolygon.lines.push(line);
+        });
+    }
+    
+    // Merge points from last polygon into previous polygon (keep all points visible)
+    if (lastPolygon.points && lastPolygon.points.length > 0) {
+        if (!previousPolygon.points) {
+            previousPolygon.points = [];
+        }
+        // Add points from last polygon to previous polygon (avoid duplicates)
+        lastPolygon.points.forEach(point => {
+            const exists = previousPolygon.points.some(p => p.id === point.id);
+            if (!exists) {
+                previousPolygon.points.push(point);
+            }
+        });
+    }
+    
+    // Merge subtracts if any
+    if (lastPolygon.subtracts && lastPolygon.subtracts.length > 0) {
+        if (!previousPolygon.subtracts) {
+            previousPolygon.subtracts = [];
+        }
+        previousPolygon.subtracts.push(...lastPolygon.subtracts);
+    }
+    
+    // Remove last polygon from list (but keep all lines and points visible)
+    state.polygons.splice(lastIndex, 1);
+    
+    showToast(`Polygon merged. New area: ${previousPolygon.areaInSquareMeters.toFixed(2)} m²`);
+    updateUI();
+    renderCanvas();
+}
+
 // ==================== Tool Selection ====================
 function updateToolButtons() {
     document.querySelectorAll('.tool-btn').forEach(btn => {
@@ -1319,19 +1392,32 @@ function updateUI() {
     if (state.polygons.length > 0) {
         elements.polygonsList.innerHTML = state.polygons.map((polygon, index) => {
             const displayName = polygon.name || `Polygon ${index + 1}`;
+            const isLast = index === state.polygons.length - 1;
+            const canMerge = state.polygons.length >= 2 && isLast;
             return `
             <div class="polygon-item" data-polygon-id="${polygon.id}">
-                <div class="polygon-name-editable" data-polygon-id="${polygon.id}">
-                    <span class="polygon-name-text">${displayName}</span>
-                    <input type="text" class="polygon-name-input hidden" value="${displayName}" data-polygon-id="${polygon.id}">
+                <div class="polygon-item-header">
+                    <div class="polygon-name-editable" data-polygon-id="${polygon.id}">
+                        <span class="polygon-name-text">${displayName}</span>
+                        <input type="text" class="polygon-name-input hidden" value="${displayName}" data-polygon-id="${polygon.id}">
+                    </div>
+                    <div class="polygon-area">${polygon.areaInSquareMeters.toFixed(2)} m²</div>
                 </div>
-                <div class="polygon-area">${polygon.areaInSquareMeters.toFixed(2)} m²</div>
+                ${canMerge ? `
+                    <button class="polygon-merge-btn" data-polygon-id="${polygon.id}" title="Merge with previous polygon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v18"/><path d="M12 3v18"/><path d="M16 3v18"/><path d="M2 3h20"/><path d="M2 21h20"/></svg>
+                        <span>Merge with previous</span>
+                    </button>
+                ` : ''}
             </div>
         `;
         }).join('');
         
         // Attach event listeners for renaming
         attachPolygonRenameListeners();
+        
+        // Attach event listeners for merge buttons
+        attachPolygonMergeListeners();
     } else {
         elements.polygonsList.innerHTML = '<p class="info-text">No polygons detected</p>';
     }
@@ -1515,3 +1601,4 @@ function init() {
 
 // Start the application
 document.addEventListener('DOMContentLoaded', init);
+
