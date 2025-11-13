@@ -67,6 +67,7 @@ const elements = {
     pointsList: document.getElementById('pointsList'),
     
     // Controls
+    newProjectBtn: document.getElementById('newProjectBtn'),
     recalibrateBtn: document.getElementById('recalibrateBtn'),
     undoBtn: document.getElementById('undoBtn'),
     clearBtn: document.getElementById('clearBtn'),
@@ -1107,6 +1108,22 @@ function handleUndoLastLine() {
     renderCanvas();
 }
 
+function handleNewProject() {
+    const hasData = state.points.length > 0 || state.lines.length > 0 || state.polygons.length > 0;
+    
+    if (hasData) {
+        const confirmed = confirm('Are you sure you want to start a new project?\n\nAll current work will be lost and cannot be recovered.\n\nThis will refresh the page and clear the browser cache for this page.');
+        
+        if (confirmed) {
+            // Hard reload - clears cache and reloads from server (like Ctrl+F5)
+            window.location.replace(window.location.href.split('?')[0] + '?t=' + Date.now());
+        }
+    } else {
+        // No data, just hard reload without confirmation
+        window.location.replace(window.location.href.split('?')[0] + '?t=' + Date.now());
+    }
+}
+
 function handleRecalibrate() {
     state.calibration = null;
     state.lines = [];
@@ -1509,6 +1526,7 @@ function initEventListeners() {
     elements.resetViewBtn.addEventListener('click', handleResetView);
     
     // Control buttons
+    elements.newProjectBtn.addEventListener('click', handleNewProject);
     elements.recalibrateBtn.addEventListener('click', handleRecalibrate);
     elements.undoBtn.addEventListener('click', handleUndoLastLine);
     elements.clearBtn.addEventListener('click', handleClearAll);
