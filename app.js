@@ -1167,6 +1167,185 @@ function handleToggleAngleSnap() {
 }
 
 // ==================== Screenshot Functions ====================
+// Render the full image with all drawings at actual size (for screenshots)
+function renderFullImageForScreenshot(ctx, imageWidth, imageHeight) {
+    // Clear canvas
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, imageWidth, imageHeight);
+    
+    // Draw image at full size
+    if (state.image) {
+        ctx.drawImage(state.image, 0, 0, imageWidth, imageHeight);
+    }
+    
+    // Calculate the coordinate transformation
+    // Points are stored in canvas coordinate space (at zoom=1.0, accounting for pan)
+    // The image is positioned at (imageX, imageY) in that coordinate space
+    // We need to map from canvas coordinates to screenshot coordinates
+    
+    // Calculate where the image is positioned in the original canvas coordinate space (at zoom=1.0, pan=0,0)
+    const maxWidth = elements.canvas.width - 40;
+    const maxHeight = elements.canvas.height - 40;
+    const originalScale = Math.min(maxWidth / state.image.width, maxHeight / state.image.height, 1);
+    const originalImageWidth = state.image.width * originalScale;
+    const originalImageHeight = state.image.height * originalScale;
+    const originalImageX = (elements.canvas.width - originalImageWidth) / 2;
+    const originalImageY = (elements.canvas.height - originalImageHeight) / 2;
+    
+    // Calculate scale factors to map from original canvas coordinates to screenshot coordinates
+    // The screenshot uses the same scale as the original, so scaleX = scaleY = 1.0
+    // But we need to account for the image position offset
+    const scaleX = imageWidth / originalImageWidth;
+    const scaleY = imageHeight / originalImageHeight;
+    
+    // Helper function to transform a point from canvas coordinates to screenshot coordinates
+    const transformPoint = (point) => {
+        // First, subtract the image offset to get coordinates relative to image top-left
+        const relativeX = point.x - originalImageX;
+        const relativeY = point.y - originalImageY;
+        // Then scale to screenshot dimensions
+        return {
+            x: relativeX * scaleX,
+            y: relativeY * scaleY
+        };
+    };
+    
+    // Helper function to check if a point is within image bounds
+    const isPointInImage = (point) => {
+        return point.x >= originalImageX && 
+               point.x <= originalImageX + originalImageWidth &&
+               point.y >= originalImageY && 
+               point.y <= originalImageY + originalImageHeight;
+    };
+    
+    // Save context state before clipping
+    ctx.save();
+    
+    // Set clipping region to image bounds
+    ctx.beginPath();
+    ctx.rect(0, 0, imageWidth, imageHeight);
+    ctx.clip();
+    
+    // Draw polygons
+    state.polygons.forEach(polygon => {
+        if (polygon.isClosed && polygon.points.length > 0) {
+            ctx.fillStyle = POLYGON_FILL_COLOR;
+            ctx.beginPath();
+            const firstTransformed = transformPoint(polygon.points[0]);
+            ctx.moveTo(firstTransformed.x, firstTransformed.y);
+            for (let i = 1; i < polygon.points.length; i++) {
+                const transformed = transformPoint(polygon.points[i]);
+                ctx.lineTo(transformed.x, transformed.y);
+            }
+            ctx.closePath();
+            ctx.fill();
+            
+            // Draw merged polygons
+            if (polygon.mergedPolygons && polygon.mergedPolygons.length > 0) {
+                polygon.mergedPolygons.forEach(mergedPolygon => {
+                    if (mergedPolygon.isClosed && mergedPolygon.points && mergedPolygon.points.length > 0) {
+                        ctx.fillStyle = POLYGON_FILL_COLOR;
+                        ctx.beginPath();
+                        const firstMergedTransformed = transformPoint(mergedPolygon.points[0]);
+                        ctx.moveTo(firstMergedTransformed.x, firstMergedTransformed.y);
+                        for (let i = 1; i < mergedPolygon.points.length; i++) {
+                            const transformed = transformPoint(mergedPolygon.points[i]);
+                            ctx.lineTo(transformed.x, transformed.y);
+                        }
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+                });
+            }
+            
+            // Draw subtract polygons (holes)
+            if (polygon.subtracts && polygon.subtracts.length > 0) {
+                polygon.subtracts.forEach(subtract => {
+                    ctx.fillStyle = SUBTRACT_FILL_COLOR;
+                    ctx.beginPath();
+                    const firstSubtractTransformed = transformPoint(subtract.points[0]);
+                    ctx.moveTo(firstSubtractTransformed.x, firstSubtractTransformed.y);
+                    for (let i = 1; i < subtract.points.length; i++) {
+                        const transformed = transformPoint(subtract.points[i]);
+                        ctx.lineTo(transformed.x, transformed.y);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    // Draw subtract outline
+                    ctx.strokeStyle = SUBTRACT_COLOR;
+                    ctx.lineWidth = LINE_WIDTH * scaleX;
+                    ctx.stroke();
+                });
+            }
+        }
+    });
+    
+    // Draw lines
+    state.lines.forEach(line => {
+        const isPipe = line.isPipe === true;
+        const isSubtract = line.isSubtract === true;
+        
+        // Check if this line is part of a subtract polygon
+        const isPartOfSubtractPolygon = state.polygons.some(polygon => 
+            polygon.subtracts && polygon.subtracts.some(subtract => 
+                subtract.lines && subtract.lines.some(l => l.id === line.id)
+            )
+        );
+        
+        ctx.strokeStyle = isPipe ? PIPE_COLOR : (isSubtract ? SUBTRACT_COLOR : LINE_COLOR);
+        ctx.lineWidth = LINE_WIDTH * scaleX;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        
+        const startTransformed = transformPoint(line.startPoint);
+        const endTransformed = transformPoint(line.endPoint);
+        
+        ctx.moveTo(startTransformed.x, startTransformed.y);
+        ctx.lineTo(endTransformed.x, endTransformed.y);
+        ctx.stroke();
+        
+        // Draw length label (skip labels for lines that are part of subtract polygons)
+        if (state.showLengthLabels && line.lengthInMeters !== undefined && !isPartOfSubtractPolygon && line.lengthInMeters > 0) {
+            const midX = (startTransformed.x + endTransformed.x) / 2;
+            const midY = (startTransformed.y + endTransformed.y) / 2;
+            
+            const text = `${line.lengthInMeters.toFixed(2)}m`;
+            ctx.font = '500 16px Inter, sans-serif';
+            const metrics = ctx.measureText(text);
+            const padding = 6;
+            
+            const bgX = midX - metrics.width / 2 - padding;
+            const bgY = midY - 12 - padding;
+            const bgWidth = metrics.width + padding * 2;
+            const bgHeight = 24 + padding * 2;
+            
+            ctx.fillStyle = isPipe ? 'rgba(22, 163, 74, 0.9)' : (isSubtract ? 'rgba(220, 38, 38, 0.9)' : 'rgba(37, 99, 235, 0.9)');
+            ctx.beginPath();
+            ctx.roundRect(bgX, bgY, bgWidth, bgHeight, 6);
+            ctx.fill();
+            
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, midX, midY);
+        }
+    });
+    
+    // Draw points
+    state.points.forEach(point => {
+        const transformed = transformPoint(point);
+        
+        ctx.fillStyle = POINT_COLOR;
+        ctx.beginPath();
+        ctx.arc(transformed.x, transformed.y, 5 * scaleX, 0, Math.PI * 2);
+        ctx.fill();
+    });
+    
+    // Restore context state to remove clipping
+    ctx.restore();
+}
+
 function handleTakeScreenshot() {
     if (!state.image) {
         showToast('Please upload a drawing first');
@@ -1174,11 +1353,13 @@ function handleTakeScreenshot() {
     }
     
     const projectName = elements.projectNameInput.value.trim() || 'Project';
-    const canvas = elements.canvas;
     
-    // Get canvas dimensions
-    const canvasWidth = canvas.width;
-    const canvasHeight = canvas.height;
+    // Calculate the actual image dimensions (at zoom=1.0, fitted to canvas)
+    const maxWidth = elements.canvas.width - 40;
+    const maxHeight = elements.canvas.height - 40;
+    const scale = Math.min(maxWidth / state.image.width, maxHeight / state.image.height, 1);
+    const imageWidth = Math.round(state.image.width * scale);
+    const imageHeight = Math.round(state.image.height * scale);
     
     // Calculate statistics
     const totalArea = state.polygons.reduce((sum, p) => sum + p.areaInSquareMeters, 0);
@@ -1194,16 +1375,12 @@ function handleTakeScreenshot() {
     
     // Create a new canvas for the screenshot with overlay
     const screenshotCanvas = document.createElement('canvas');
-    screenshotCanvas.width = canvasWidth;
-    screenshotCanvas.height = canvasHeight + overlayHeight;
+    screenshotCanvas.width = imageWidth;
+    screenshotCanvas.height = imageHeight + overlayHeight;
     const ctx = screenshotCanvas.getContext('2d');
     
-    // Fill with white background
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, screenshotCanvas.width, screenshotCanvas.height);
-    
-    // Draw the original canvas
-    ctx.drawImage(canvas, 0, 0);
+    // Render the full image with all drawings
+    renderFullImageForScreenshot(ctx, imageWidth, imageHeight);
     
     // Prepare overlay information
     const now = new Date();
@@ -1212,47 +1389,60 @@ function handleTakeScreenshot() {
     const dateTimeStr = `${dateStr} ${timeStr}`;
     
     // Draw overlay background
-    const overlayY = canvasHeight;
+    const overlayY = imageHeight;
     ctx.fillStyle = 'rgba(37, 99, 235, 0.95)';
     ctx.fillRect(0, overlayY, screenshotCanvas.width, overlayHeight);
     
-    // Draw project name (top of overlay)
+    // Draw project name (centered vertically in top section)
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 24px Inter, sans-serif';
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText(projectName, screenshotCanvas.width / 2, overlayY + 15);
+    ctx.textBaseline = 'middle';
+    // Top section: first 40px of overlay, center at 20px
+    const projectNameY = overlayY + 20;
+    ctx.fillText(projectName, screenshotCanvas.width / 2, projectNameY);
     
-    // Draw date and time
+    // Draw date and time (centered vertically in second section)
     ctx.font = '500 14px Inter, sans-serif';
-    ctx.fillText(dateTimeStr, screenshotCanvas.width / 2, overlayY + 50);
+    // Second section: next 30px, center at 55px from overlay start
+    const dateTimeY = overlayY + 55;
+    ctx.fillText(dateTimeStr, screenshotCanvas.width / 2, dateTimeY);
     
-    // Draw statistics (left column)
+    // Draw statistics (left column) - vertically centered
     ctx.font = '500 16px Inter, sans-serif';
     ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
     const statsX = 30;
-    const statsY = overlayY + 75;
-    const lineHeight = 20;
+    const statsStartY = overlayY + 85;
+    const lineHeight = 22;
     
-    ctx.fillText(`Total Area: ${totalArea.toFixed(2)} m²`, statsX, statsY);
+    // Calculate center Y for statistics section (2 lines if pipes exist, 1 line otherwise)
+    const statsSectionHeight = (pipesCount > 0 ? lineHeight * 2 : lineHeight);
+    const statsCenterY = statsStartY + statsSectionHeight / 2;
     
-    // Draw Total Pipes
+    // Draw Total Area (centered vertically in stats section)
+    const totalAreaY = pipesCount > 0 ? statsCenterY - lineHeight / 2 : statsCenterY;
+    ctx.fillText(`Total Area: ${totalArea.toFixed(2)} m²`, statsX, totalAreaY);
+    
+    // Draw Total Pipes (centered vertically in stats section)
     if (pipesCount > 0) {
-        ctx.fillText(`Total Pipes: ${pipesTotalLength.toFixed(2)} m`, statsX, statsY + lineHeight);
+        ctx.fillText(`Total Pipes: ${pipesTotalLength.toFixed(2)} m`, statsX, statsCenterY + lineHeight / 2);
     }
     
-    // Draw polygons list
-    let currentY = statsY + (pipesCount > 0 ? lineHeight * 2 : lineHeight) + 10;
+    // Draw polygons list (properly spaced)
+    let currentY = statsStartY + statsSectionHeight + 15;
     if (polygonsCount > 0) {
         ctx.font = '600 16px Inter, sans-serif';
-        ctx.fillText('Polygons:', statsX, currentY);
-        currentY += 20;
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Polygons:', statsX, currentY + 10);
+        currentY += 25;
         
         ctx.font = '500 14px Inter, sans-serif';
         state.polygons.forEach((polygon, index) => {
             const displayName = polygon.name || `Polygon ${index + 1}`;
             const area = polygon.areaInSquareMeters.toFixed(2);
-            ctx.fillText(`  • ${displayName}: ${area} m²`, statsX, currentY);
+            // Center each polygon line vertically in its 18px height
+            ctx.fillText(`  • ${displayName}: ${area} m²`, statsX, currentY + 9);
             currentY += 18;
         });
     }
