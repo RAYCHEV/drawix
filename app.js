@@ -42,8 +42,6 @@ const elements = {
     canvasWrapper: document.getElementById('canvasWrapper'),
     emptyState: document.getElementById('emptyState'),
     loadingState: document.getElementById('loadingState'),
-    pointCounter: document.getElementById('pointCounter'),
-    pointCount: document.getElementById('pointCount'),
     zoomControls: document.getElementById('zoomControls'),
     zoomLevel: document.getElementById('zoomLevel'),
     zoomInBtn: document.getElementById('zoomInBtn'),
@@ -279,6 +277,22 @@ function renderCanvas() {
             }
             ctx.closePath();
             ctx.fill();
+            
+            // Draw merged polygons (polygons that were merged into this one)
+            if (polygon.mergedPolygons && polygon.mergedPolygons.length > 0) {
+                polygon.mergedPolygons.forEach(mergedPolygon => {
+                    if (mergedPolygon.isClosed && mergedPolygon.points && mergedPolygon.points.length > 0) {
+                        ctx.fillStyle = POLYGON_FILL_COLOR;
+                        ctx.beginPath();
+                        ctx.moveTo(mergedPolygon.points[0].x, mergedPolygon.points[0].y);
+                        for (let i = 1; i < mergedPolygon.points.length; i++) {
+                            ctx.lineTo(mergedPolygon.points[i].x, mergedPolygon.points[i].y);
+                        }
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+                });
+            }
             
             // Draw subtract polygons (holes) if any
             if (polygon.subtracts && polygon.subtracts.length > 0) {
@@ -1299,32 +1313,14 @@ function handleMergePolygon(lastPolygonId) {
     // Merge areas (keep previous polygon's name)
     previousPolygon.areaInSquareMeters += lastPolygon.areaInSquareMeters;
     
-    // Merge lines from last polygon into previous polygon (keep all lines visible)
-    if (lastPolygon.lines && lastPolygon.lines.length > 0) {
-        if (!previousPolygon.lines) {
-            previousPolygon.lines = [];
-        }
-        // Add lines from last polygon to previous polygon
-        lastPolygon.lines.forEach(line => {
-            previousPolygon.lines.push(line);
-        });
+    // Add last polygon as a merged polygon to keep it visually rendered
+    // This way both polygons stay visible but are treated as one in the menu
+    if (!previousPolygon.mergedPolygons) {
+        previousPolygon.mergedPolygons = [];
     }
+    previousPolygon.mergedPolygons.push(lastPolygon);
     
-    // Merge points from last polygon into previous polygon (keep all points visible)
-    if (lastPolygon.points && lastPolygon.points.length > 0) {
-        if (!previousPolygon.points) {
-            previousPolygon.points = [];
-        }
-        // Add points from last polygon to previous polygon (avoid duplicates)
-        lastPolygon.points.forEach(point => {
-            const exists = previousPolygon.points.some(p => p.id === point.id);
-            if (!exists) {
-                previousPolygon.points.push(point);
-            }
-        });
-    }
-    
-    // Merge subtracts if any
+    // Merge subtracts if any (these are holes in polygons)
     if (lastPolygon.subtracts && lastPolygon.subtracts.length > 0) {
         if (!previousPolygon.subtracts) {
             previousPolygon.subtracts = [];
@@ -1332,7 +1328,7 @@ function handleMergePolygon(lastPolygonId) {
         previousPolygon.subtracts.push(...lastPolygon.subtracts);
     }
     
-    // Remove last polygon from list (but keep all lines and points visible)
+    // Remove last polygon from list (but it will still be rendered via mergedPolygons)
     state.polygons.splice(lastIndex, 1);
     
     showToast(`Polygon merged. New area: ${previousPolygon.areaInSquareMeters.toFixed(2)} m²`);
@@ -1382,14 +1378,6 @@ function updateUI() {
     updateToolButtons();
     // Update zoom level
     elements.zoomLevel.textContent = `${Math.round(state.zoom * 100)}%`;
-    
-    // Update point counter
-    if (state.points.length > 0) {
-        elements.pointCounter.classList.remove('hidden');
-        elements.pointCount.textContent = state.points.length;
-    } else {
-        elements.pointCounter.classList.add('hidden');
-    }
     
     // Update calibration info
     if (state.calibration) {
@@ -1477,10 +1465,13 @@ function updateUI() {
     elements.toggleLengthLabelsBtn.classList.toggle('active', state.showLengthLabels);
     elements.toggleAngleSnapBtn.classList.toggle('active', state.angleSnapEnabled);
     
-    // Disable zoom controls when drawing has started
+    // Hide zoom controls when drawing has started (after calibration)
     const hasPoints = state.points.length > 0;
-    elements.zoomInBtn.disabled = hasPoints;
-    elements.zoomOutBtn.disabled = hasPoints;
+    if (hasPoints) {
+        elements.zoomControls.classList.add('hidden');
+    } else {
+        elements.zoomControls.classList.remove('hidden');
+    }
 }
 
 function resizeCanvas() {
