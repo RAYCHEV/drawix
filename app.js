@@ -53,6 +53,8 @@ const elements = {
     fileInput: document.getElementById('fileInput'),
     
     // Tool panel
+    projectNameInput: document.getElementById('projectNameInput'),
+    screenshotBtn: document.getElementById('screenshotBtn'),
     toolLine: document.getElementById('toolLine'),
     toolRectangle: document.getElementById('toolRectangle'),
     toolPipe: document.getElementById('toolPipe'),
@@ -1164,6 +1166,116 @@ function handleToggleAngleSnap() {
     showToast(state.angleSnapEnabled ? '90° angle snap enabled' : '90° angle snap disabled');
 }
 
+// ==================== Screenshot Functions ====================
+function handleTakeScreenshot() {
+    if (!state.image) {
+        showToast('Please upload a drawing first');
+        return;
+    }
+    
+    const projectName = elements.projectNameInput.value.trim() || 'Project';
+    const canvas = elements.canvas;
+    
+    // Get canvas dimensions
+    const canvasWidth = canvas.width;
+    const canvasHeight = canvas.height;
+    
+    // Calculate statistics
+    const totalArea = state.polygons.reduce((sum, p) => sum + p.areaInSquareMeters, 0);
+    const polygonsCount = state.polygons.length;
+    const pipes = state.lines.filter(line => line.isPipe === true);
+    const pipesCount = pipes.length;
+    const pipesTotalLength = pipes.reduce((sum, pipe) => sum + (pipe.lengthInMeters || 0), 0);
+    
+    // Calculate overlay height based on content
+    const baseOverlayHeight = 120;
+    const polygonsListHeight = polygonsCount > 0 ? polygonsCount * 18 + 20 : 0;
+    const overlayHeight = baseOverlayHeight + polygonsListHeight;
+    
+    // Create a new canvas for the screenshot with overlay
+    const screenshotCanvas = document.createElement('canvas');
+    screenshotCanvas.width = canvasWidth;
+    screenshotCanvas.height = canvasHeight + overlayHeight;
+    const ctx = screenshotCanvas.getContext('2d');
+    
+    // Fill with white background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, screenshotCanvas.width, screenshotCanvas.height);
+    
+    // Draw the original canvas
+    ctx.drawImage(canvas, 0, 0);
+    
+    // Prepare overlay information
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    const dateTimeStr = `${dateStr} ${timeStr}`;
+    
+    // Draw overlay background
+    const overlayY = canvasHeight;
+    ctx.fillStyle = 'rgba(37, 99, 235, 0.95)';
+    ctx.fillRect(0, overlayY, screenshotCanvas.width, overlayHeight);
+    
+    // Draw project name (top of overlay)
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 24px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(projectName, screenshotCanvas.width / 2, overlayY + 15);
+    
+    // Draw date and time
+    ctx.font = '500 14px Inter, sans-serif';
+    ctx.fillText(dateTimeStr, screenshotCanvas.width / 2, overlayY + 50);
+    
+    // Draw statistics (left column)
+    ctx.font = '500 16px Inter, sans-serif';
+    ctx.textAlign = 'left';
+    const statsX = 30;
+    const statsY = overlayY + 75;
+    const lineHeight = 20;
+    
+    ctx.fillText(`Total Area: ${totalArea.toFixed(2)} m²`, statsX, statsY);
+    
+    // Draw Total Pipes
+    if (pipesCount > 0) {
+        ctx.fillText(`Total Pipes: ${pipesTotalLength.toFixed(2)} m`, statsX, statsY + lineHeight);
+    }
+    
+    // Draw polygons list
+    let currentY = statsY + (pipesCount > 0 ? lineHeight * 2 : lineHeight) + 10;
+    if (polygonsCount > 0) {
+        ctx.font = '600 16px Inter, sans-serif';
+        ctx.fillText('Polygons:', statsX, currentY);
+        currentY += 20;
+        
+        ctx.font = '500 14px Inter, sans-serif';
+        state.polygons.forEach((polygon, index) => {
+            const displayName = polygon.name || `Polygon ${index + 1}`;
+            const area = polygon.areaInSquareMeters.toFixed(2);
+            ctx.fillText(`  • ${displayName}: ${area} m²`, statsX, currentY);
+            currentY += 18;
+        });
+    }
+    
+    // Convert to blob and download
+    screenshotCanvas.toBlob((blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        
+        // Create filename: ProjectName-YYYYMMDD-HHMM.png
+        const dateForFilename = now.toISOString().slice(0, 19).replace(/[:-]/g, '').replace('T', '-');
+        const safeProjectName = projectName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+        const filename = `${safeProjectName}-${dateForFilename}.png`;
+        
+        link.download = filename;
+        link.click();
+        
+        URL.revokeObjectURL(url);
+        showToast('Screenshot saved');
+    }, 'image/png');
+}
+
 // ==================== Calibration Modal ====================
 function openCalibrationModal() {
     elements.calibrationModal.showModal();
@@ -1544,6 +1656,9 @@ function initEventListeners() {
     elements.instructionsHeader.addEventListener('click', () => {
         toggleCollapsible(elements.instructionsHeader, document.getElementById('instructionsContent'));
     });
+    
+    // Screenshot button
+    elements.screenshotBtn.addEventListener('click', handleTakeScreenshot);
     
     // Tool selection
     elements.toolLine.addEventListener('click', () => {
