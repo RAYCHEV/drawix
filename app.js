@@ -1179,30 +1179,43 @@ function renderFullImageForScreenshot(ctx, imageWidth, imageHeight) {
     }
     
     // Calculate the coordinate transformation
-    // Points are stored in canvas coordinate space (at zoom=1.0, accounting for pan)
+    // Points are stored in canvas coordinate space (in transformed space after zoom/pan)
     // The image is positioned at (imageX, imageY) in that coordinate space
     // We need to map from canvas coordinates to screenshot coordinates
     
-    // Calculate where the image is positioned in the original canvas coordinate space (at zoom=1.0, pan=0,0)
+    // Calculate where the image is positioned in the transformed coordinate space (at zoom=1.0, pan=0,0)
+    // This matches how the image is positioned in renderCanvas()
     const maxWidth = elements.canvas.width - 40;
     const maxHeight = elements.canvas.height - 40;
     const originalScale = Math.min(maxWidth / state.image.width, maxHeight / state.image.height, 1);
     const originalImageWidth = state.image.width * originalScale;
     const originalImageHeight = state.image.height * originalScale;
+    
+    // In renderCanvas, at zoom=1.0, the image is positioned at:
+    // x = (elements.canvas.width / 1.0 - width) / 2 = (elements.canvas.width - width) / 2
+    // y = (elements.canvas.height / 1.0 - height) / 2 = (elements.canvas.height - height) / 2
     const originalImageX = (elements.canvas.width - originalImageWidth) / 2;
     const originalImageY = (elements.canvas.height - originalImageHeight) / 2;
     
     // Calculate scale factors to map from original canvas coordinates to screenshot coordinates
-    // The screenshot uses the same scale as the original, so scaleX = scaleY = 1.0
-    // But we need to account for the image position offset
+    // The screenshot image uses the same scale as the original, so we scale proportionally
     const scaleX = imageWidth / originalImageWidth;
     const scaleY = imageHeight / originalImageHeight;
     
     // Helper function to transform a point from canvas coordinates to screenshot coordinates
     const transformPoint = (point) => {
+        // Points are stored in the transformed coordinate space (same as renderCanvas uses)
         // First, subtract the image offset to get coordinates relative to image top-left
         const relativeX = point.x - originalImageX;
         const relativeY = point.y - originalImageY;
+        
+        // Check if point is within image bounds (with some tolerance)
+        if (relativeX < -10 || relativeX > originalImageWidth + 10 || 
+            relativeY < -10 || relativeY > originalImageHeight + 10) {
+            // Point is outside image bounds, return a position that will be clipped
+            return { x: -1000, y: -1000 };
+        }
+        
         // Then scale to screenshot dimensions
         return {
             x: relativeX * scaleX,
@@ -1230,6 +1243,8 @@ function renderFullImageForScreenshot(ctx, imageWidth, imageHeight) {
     state.polygons.forEach(polygon => {
         if (polygon.isClosed && polygon.points.length > 0) {
             ctx.fillStyle = POLYGON_FILL_COLOR;
+            ctx.strokeStyle = LINE_COLOR;
+            ctx.lineWidth = LINE_WIDTH * scaleX;
             ctx.beginPath();
             const firstTransformed = transformPoint(polygon.points[0]);
             ctx.moveTo(firstTransformed.x, firstTransformed.y);
@@ -1239,12 +1254,15 @@ function renderFullImageForScreenshot(ctx, imageWidth, imageHeight) {
             }
             ctx.closePath();
             ctx.fill();
+            ctx.stroke();
             
             // Draw merged polygons
             if (polygon.mergedPolygons && polygon.mergedPolygons.length > 0) {
                 polygon.mergedPolygons.forEach(mergedPolygon => {
                     if (mergedPolygon.isClosed && mergedPolygon.points && mergedPolygon.points.length > 0) {
                         ctx.fillStyle = POLYGON_FILL_COLOR;
+                        ctx.strokeStyle = LINE_COLOR;
+                        ctx.lineWidth = LINE_WIDTH * scaleX;
                         ctx.beginPath();
                         const firstMergedTransformed = transformPoint(mergedPolygon.points[0]);
                         ctx.moveTo(firstMergedTransformed.x, firstMergedTransformed.y);
@@ -1254,6 +1272,7 @@ function renderFullImageForScreenshot(ctx, imageWidth, imageHeight) {
                         }
                         ctx.closePath();
                         ctx.fill();
+                        ctx.stroke();
                     }
                 });
             }
