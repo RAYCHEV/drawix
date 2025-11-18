@@ -1369,9 +1369,15 @@ function handleTakeScreenshot() {
     const pipesTotalLength = pipes.reduce((sum, pipe) => sum + (pipe.lengthInMeters || 0), 0);
     
     // Calculate overlay height based on content
-    const baseOverlayHeight = 120;
-    const polygonsListHeight = polygonsCount > 0 ? polygonsCount * 18 + 20 : 0;
-    const overlayHeight = baseOverlayHeight + polygonsListHeight;
+    // Base section: project name (40px) + date/time (30px) + stats section
+    const statsSectionHeight = (pipesCount > 0 ? 22 * 2 : 22); // lineHeight * number of lines
+    const baseSectionHeight = 40 + 30; // project name + date/time sections
+    const statsStartY = baseSectionHeight + 15; // gap after date/time
+    const polygonsSectionStart = statsStartY + statsSectionHeight + 15; // gap after stats
+    const polygonsHeadingHeight = 25; // "Polygons:" heading with spacing
+    const polygonsListHeight = polygonsCount > 0 ? polygonsHeadingHeight + (polygonsCount * 18) : 0;
+    const bottomPadding = 20; // padding at bottom
+    const overlayHeight = baseSectionHeight + statsSectionHeight + 15 + polygonsListHeight + bottomPadding;
     
     // Create a new canvas for the screenshot with overlay
     const screenshotCanvas = document.createElement('canvas');
@@ -1413,12 +1419,10 @@ function handleTakeScreenshot() {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     const statsX = 30;
-    const statsStartY = overlayY + 85;
     const lineHeight = 22;
     
     // Calculate center Y for statistics section (2 lines if pipes exist, 1 line otherwise)
-    const statsSectionHeight = (pipesCount > 0 ? lineHeight * 2 : lineHeight);
-    const statsCenterY = statsStartY + statsSectionHeight / 2;
+    const statsCenterY = overlayY + statsStartY + statsSectionHeight / 2;
     
     // Draw Total Area (centered vertically in stats section)
     const totalAreaY = pipesCount > 0 ? statsCenterY - lineHeight / 2 : statsCenterY;
@@ -1430,7 +1434,7 @@ function handleTakeScreenshot() {
     }
     
     // Draw polygons list (properly spaced)
-    let currentY = statsStartY + statsSectionHeight + 15;
+    let currentY = overlayY + polygonsSectionStart;
     if (polygonsCount > 0) {
         ctx.font = '600 16px Inter, sans-serif';
         ctx.textBaseline = 'middle';
