@@ -70,12 +70,12 @@
             <!-- File Upload Section -->
             <div class="panel-section">
                 <h2 class="panel-section-title">Upload Drawing</h2>
-                <div class="upload-area" id="uploadArea" data-testid="upload-area">
-                    <input type="file" id="fileInput" accept="image/jpeg,image/png,application/pdf" hidden>
+                <label for="fileInput" class="upload-area" id="uploadArea" data-testid="upload-area" title="Click to upload or drag and drop a file">
+                    <input type="file" id="fileInput" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,application/pdf,.jpg,.jpeg,.png,.gif,.webp,.pdf" style="display: none;">
                     <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
                     <p class="upload-text">Click to upload</p>
                     <p class="upload-subtext">JPG, PNG or PDF</p>
-                </div>
+                </label>
             </div>
             
             <!-- Project Name & Screenshot -->

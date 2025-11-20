@@ -244,11 +244,21 @@ body {
     text-align: center;
     cursor: pointer;
     transition: all 0.2s;
+    position: relative;
+    user-select: none;
+    -webkit-user-select: none;
+    pointer-events: auto;
+    display: block;
+    margin: 0;
 }
 
 .upload-area:hover {
     border-color: var(--primary);
     background-color: var(--surface);
+}
+
+.upload-area:active {
+    transform: scale(0.98);
 }
 
 .upload-area svg {

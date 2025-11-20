@@ -1,3 +1,22 @@
+// ==================== Polyfill for roundRect ====================
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function(x, y, width, height, radius) {
+        if (width < 0) { x += width; width = -width; }
+        if (height < 0) { y += height; height = -height; }
+        this.beginPath();
+        this.moveTo(x + radius, y);
+        this.lineTo(x + width - radius, y);
+        this.quadraticCurveTo(x + width, y, x + width, y + radius);
+        this.lineTo(x + width, y + height - radius);
+        this.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        this.lineTo(x + radius, y + height);
+        this.quadraticCurveTo(x, y + height, x, y + height - radius);
+        this.lineTo(x, y + radius);
+        this.quadraticCurveTo(x, y, x + radius, y);
+        this.closePath();
+    };
+}
+
 // ==================== Constants ====================
 const SNAP_RADIUS = 12;
 const LINE_COLOR = "#2563eb";
@@ -32,7 +51,10 @@ const state = {
     nearestSnapPoint: null,
     pendingCalibrationLine: null,
     showLengthLabels: true, // Toggle for showing/hiding line length labels
-    angleSnapEnabled: true // Toggle for 90-degree angle snapping
+    angleSnapEnabled: true, // Toggle for 90-degree angle snapping
+    isSelectingScreenshot: false, // Screenshot selection mode
+    screenshotSelectionStart: null, // Start point of screenshot selection
+    screenshotSelectionEnd: null // End point of screenshot selection
 };
 
 // ==================== DOM Elements ====================
@@ -166,26 +188,100 @@ function findContainingPolygon(newPolygonPoints) {
 }
 
 // ==================== Canvas Functions ====================
-function getCanvasPoint(clientX, clientY) {
-    const rect = elements.canvas.getBoundingClientRect();
-    const x = (clientX - rect.left - state.pan.x) / state.zoom;
-    const y = (clientY - rect.top - state.pan.y) / state.zoom;
+// Helper function to calculate image position in transformed space
+function getImagePosition() {
+    if (!state.image || !state.image.width || !state.image.height) return null;
     
-    return { 
-        x, 
-        y, 
-        id: `point-${Date.now()}-${Math.random()}` 
-    };
+    const maxWidth = elements.canvas.width - 40;
+    const maxHeight = elements.canvas.height - 40;
+    const scale = Math.min(maxWidth / state.image.width, maxHeight / state.image.height, 1);
+    const width = state.image.width * scale;
+    const height = state.image.height * scale;
+    
+    // Position in transformed space (same as in renderCanvas)
+    const x = (elements.canvas.width / state.zoom - width) / 2;
+    const y = (elements.canvas.height / state.zoom - height) / 2;
+    
+    return { x, y, width, height };
+}
+
+function getCanvasPoint(clientX, clientY) {
+    try {
+        const rect = elements.canvas.getBoundingClientRect();
+        // Get point in transformed space
+        const transformedX = (clientX - rect.left - state.pan.x) / state.zoom;
+        const transformedY = (clientY - rect.top - state.pan.y) / state.zoom;
+        
+        // Get image position in transformed space
+        const imagePos = getImagePosition();
+        if (!imagePos) {
+            // Fallback to old behavior if no image
+            return { 
+                x: transformedX, 
+                y: transformedY, 
+                id: `point-${Date.now()}-${Math.random()}` 
+            };
+        }
+        
+        // Convert to coordinates relative to image (this way points stay with the image when zooming)
+        const x = transformedX - imagePos.x;
+        const y = transformedY - imagePos.y;
+        
+        return { 
+            x, 
+            y, 
+            id: `point-${Date.now()}-${Math.random()}` 
+        };
+    } catch (error) {
+        console.error('Error in getCanvasPoint:', error);
+        // Fallback to safe return
+        return { 
+            x: 0, 
+            y: 0, 
+            id: `point-${Date.now()}-${Math.random()}` 
+        };
+    }
 }
 
 function findNearestPoint(point) {
     let nearest = null;
-    let minDistance = SNAP_RADIUS;
+    
+    // Get image position to convert points to canvas coordinates
+    const imagePos = getImagePosition();
+    if (!imagePos) {
+        // Fallback to old behavior if no image
+        let minDistance = SNAP_RADIUS;
+        state.points.forEach(p => {
+            const distance = calculateDistance(
+                { x: p.x * state.zoom, y: p.y * state.zoom },
+                { x: point.x * state.zoom, y: point.y * state.zoom }
+            );
+            
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearest = p;
+            }
+        });
+        return nearest;
+    }
+    
+    // Convert point to canvas coordinates
+    const pointCanvasX = point.x + imagePos.x;
+    const pointCanvasY = point.y + imagePos.y;
+    
+    // SNAP_RADIUS is in screen pixels, convert to transformed space
+    const snapRadiusInTransformedSpace = SNAP_RADIUS / state.zoom;
+    let minDistance = snapRadiusInTransformedSpace;
     
     state.points.forEach(p => {
+        // Convert stored point to canvas coordinates
+        const pCanvasX = p.x + imagePos.x;
+        const pCanvasY = p.y + imagePos.y;
+        
+        // Calculate distance in transformed space
         const distance = calculateDistance(
-            { x: p.x * state.zoom, y: p.y * state.zoom },
-            { x: point.x * state.zoom, y: point.y * state.zoom }
+            { x: pCanvasX, y: pCanvasY },
+            { x: pointCanvasX, y: pointCanvasY }
         );
         
         if (distance < minDistance) {
@@ -253,6 +349,7 @@ function renderCanvas() {
     ctx.scale(state.zoom, state.zoom);
     
     // Draw image (will be scaled by ctx.scale transformation)
+    let imagePos = null;
     if (state.image) {
         // Calculate initial fit size (at zoom=1.0)
         const maxWidth = elements.canvas.width - 40;
@@ -265,17 +362,34 @@ function renderCanvas() {
         const x = (elements.canvas.width / state.zoom - width) / 2;
         const y = (elements.canvas.height / state.zoom - height) / 2;
         
+        imagePos = { x, y, width, height };
         ctx.drawImage(state.image, x, y, width, height);
     }
+    
+    // Helper function to convert point from image-relative to canvas coordinates
+    const toCanvasPoint = (point) => {
+        if (!imagePos || !point) return point;
+        try {
+            return {
+                x: point.x + imagePos.x,
+                y: point.y + imagePos.y
+            };
+        } catch (error) {
+            console.error('Error in toCanvasPoint:', error);
+            return point;
+        }
+    };
     
     // Draw polygons
     state.polygons.forEach(polygon => {
         if (polygon.isClosed && polygon.points.length > 0) {
             ctx.fillStyle = POLYGON_FILL_COLOR;
             ctx.beginPath();
-            ctx.moveTo(polygon.points[0].x, polygon.points[0].y);
+            const firstPoint = toCanvasPoint(polygon.points[0]);
+            ctx.moveTo(firstPoint.x, firstPoint.y);
             for (let i = 1; i < polygon.points.length; i++) {
-                ctx.lineTo(polygon.points[i].x, polygon.points[i].y);
+                const point = toCanvasPoint(polygon.points[i]);
+                ctx.lineTo(point.x, point.y);
             }
             ctx.closePath();
             ctx.fill();
@@ -286,9 +400,11 @@ function renderCanvas() {
                     if (mergedPolygon.isClosed && mergedPolygon.points && mergedPolygon.points.length > 0) {
                         ctx.fillStyle = POLYGON_FILL_COLOR;
                         ctx.beginPath();
-                        ctx.moveTo(mergedPolygon.points[0].x, mergedPolygon.points[0].y);
+                        const firstMergedPoint = toCanvasPoint(mergedPolygon.points[0]);
+                        ctx.moveTo(firstMergedPoint.x, firstMergedPoint.y);
                         for (let i = 1; i < mergedPolygon.points.length; i++) {
-                            ctx.lineTo(mergedPolygon.points[i].x, mergedPolygon.points[i].y);
+                            const point = toCanvasPoint(mergedPolygon.points[i]);
+                            ctx.lineTo(point.x, point.y);
                         }
                         ctx.closePath();
                         ctx.fill();
@@ -301,9 +417,11 @@ function renderCanvas() {
                 polygon.subtracts.forEach(subtract => {
                     ctx.fillStyle = SUBTRACT_FILL_COLOR;
                     ctx.beginPath();
-                    ctx.moveTo(subtract.points[0].x, subtract.points[0].y);
+                    const firstSubtractPoint = toCanvasPoint(subtract.points[0]);
+                    ctx.moveTo(firstSubtractPoint.x, firstSubtractPoint.y);
                     for (let i = 1; i < subtract.points.length; i++) {
-                        ctx.lineTo(subtract.points[i].x, subtract.points[i].y);
+                        const point = toCanvasPoint(subtract.points[i]);
+                        ctx.lineTo(point.x, point.y);
                     }
                     ctx.closePath();
                     ctx.fill();
@@ -336,14 +454,16 @@ function renderCanvas() {
         ctx.lineWidth = LINE_WIDTH / state.zoom;  // Fixed screen width
         ctx.lineCap = 'round';
         ctx.beginPath();
-        ctx.moveTo(line.startPoint.x, line.startPoint.y);
-        ctx.lineTo(line.endPoint.x, line.endPoint.y);
+        const startPoint = toCanvasPoint(line.startPoint);
+        const endPoint = toCanvasPoint(line.endPoint);
+        ctx.moveTo(startPoint.x, startPoint.y);
+        ctx.lineTo(endPoint.x, endPoint.y);
         ctx.stroke();
         
         // Draw length label (skip labels for lines that are part of subtract polygons)
         if (state.showLengthLabels && line.lengthInMeters !== undefined && !isPartOfSubtractPolygon && line.lengthInMeters > 0) {
-            const midX = (line.startPoint.x + line.endPoint.x) / 2;
-            const midY = (line.startPoint.y + line.endPoint.y) / 2;
+            const midX = (startPoint.x + endPoint.x) / 2;
+            const midY = (startPoint.y + endPoint.y) / 2;
             
             ctx.save();
             ctx.scale(1 / state.zoom, 1 / state.zoom);
@@ -374,10 +494,12 @@ function renderCanvas() {
     
     // Draw current rectangle preview
     if (state.currentRectangleStart && state.cursorPosition) {
-        const x1 = state.currentRectangleStart.x;
-        const y1 = state.currentRectangleStart.y;
-        const x2 = state.cursorPosition.x;
-        const y2 = state.cursorPosition.y;
+        const rectStart = toCanvasPoint(state.currentRectangleStart);
+        const rectCursor = toCanvasPoint(state.cursorPosition);
+        const x1 = rectStart.x;
+        const y1 = rectStart.y;
+        const x2 = rectCursor.x;
+        const y2 = rectCursor.y;
         
         const x = Math.min(x1, x2);
         const y = Math.min(y1, y2);
@@ -404,7 +526,8 @@ function renderCanvas() {
     
     // Draw current line preview with fixed visual width
     if (state.currentLineStart && state.cursorPosition) {
-        const snapTarget = state.nearestSnapPoint || state.cursorPosition;
+        const lineStart = toCanvasPoint(state.currentLineStart);
+        const snapTarget = state.nearestSnapPoint ? toCanvasPoint(state.nearestSnapPoint) : toCanvasPoint(state.cursorPosition);
         
         // Check if angle snapped
         const isAngleSnapped = state.cursorPosition.isAngleSnapped;
@@ -421,15 +544,15 @@ function renderCanvas() {
         }
         
         ctx.beginPath();
-        ctx.moveTo(state.currentLineStart.x, state.currentLineStart.y);
+        ctx.moveTo(lineStart.x, lineStart.y);
         ctx.lineTo(snapTarget.x, snapTarget.y);
         ctx.stroke();
         ctx.setLineDash([]);
         
         // Show angle indicator when angle-snapped
         if (isAngleSnapped) {
-            const midX = (state.currentLineStart.x + snapTarget.x) / 2;
-            const midY = (state.currentLineStart.y + snapTarget.y) / 2;
+            const midX = (lineStart.x + snapTarget.x) / 2;
+            const midY = (lineStart.y + snapTarget.y) / 2;
             
             ctx.save();
             ctx.scale(1 / state.zoom, 1 / state.zoom);
@@ -460,6 +583,7 @@ function renderCanvas() {
     
     // Draw points with fixed visual size (not affected by zoom)
     state.points.forEach(point => {
+        const canvasPoint = toCanvasPoint(point);
         const isHovered = state.nearestSnapPoint?.id === point.id;
         const isStart = state.currentLineStart?.id === point.id;
         
@@ -467,15 +591,37 @@ function renderCanvas() {
             ctx.strokeStyle = POINT_COLOR;
             ctx.lineWidth = 2 / state.zoom;  // Fixed screen width
             ctx.beginPath();
-            ctx.arc(point.x, point.y, 7 / state.zoom, 0, Math.PI * 2);  // Fixed screen size
+            ctx.arc(canvasPoint.x, canvasPoint.y, 7 / state.zoom, 0, Math.PI * 2);  // Fixed screen size
             ctx.stroke();
         }
         
         ctx.fillStyle = isStart ? '#dc2626' : POINT_COLOR;
         ctx.beginPath();
-        ctx.arc(point.x, point.y, 5 / state.zoom, 0, Math.PI * 2);  // Fixed screen size
+        ctx.arc(canvasPoint.x, canvasPoint.y, 5 / state.zoom, 0, Math.PI * 2);  // Fixed screen size
         ctx.fill();
     });
+    
+    // Draw screenshot selection rectangle
+    if (state.isSelectingScreenshot && state.screenshotSelectionStart && state.screenshotSelectionEnd) {
+        const startCanvas = toCanvasPoint(state.screenshotSelectionStart);
+        const endCanvas = toCanvasPoint(state.screenshotSelectionEnd);
+        
+        const x = Math.min(startCanvas.x, endCanvas.x);
+        const y = Math.min(startCanvas.y, endCanvas.y);
+        const width = Math.abs(endCanvas.x - startCanvas.x);
+        const height = Math.abs(endCanvas.y - startCanvas.y);
+        
+        // Draw selection rectangle with dashed border
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 2 / state.zoom;
+        ctx.setLineDash([8 / state.zoom, 4 / state.zoom]);
+        ctx.strokeRect(x, y, width, height);
+        ctx.setLineDash([]);
+        
+        // Draw semi-transparent fill
+        ctx.fillStyle = 'rgba(37, 99, 235, 0.1)';
+        ctx.fillRect(x, y, width, height);
+    }
     
     ctx.restore();
 }
@@ -607,16 +753,61 @@ function checkForClosedPolygon() {
 
 // ==================== Event Handlers ====================
 function handleFileUpload(file) {
-    if (!file) return;
+    if (!file) {
+        console.error('No file provided to handleFileUpload');
+        showToast('No file selected');
+        return;
+    }
+    
+    // Validate file size (max 50MB)
+    const maxSize = 50 * 1024 * 1024; // 50MB
+    if (file.size > maxSize) {
+        showToast('File is too large. Maximum size is 50MB');
+        return;
+    }
+    
+    if (file.size === 0) {
+        showToast('File is empty');
+        return;
+    }
     
     const fileType = file.type;
-    elements.loadingState.classList.remove('hidden');
-    elements.emptyState.classList.add('hidden');
+    const fileName = file.name.toLowerCase();
     
-    if (fileType === 'application/pdf') {
+    // Show loading state
+    if (elements.loadingState) {
+        elements.loadingState.classList.remove('hidden');
+    }
+    if (elements.emptyState) {
+        elements.emptyState.classList.add('hidden');
+    }
+    
+    // Check file type by MIME type or extension
+    const isPDF = fileType === 'application/pdf' || fileName.endsWith('.pdf');
+    const isImage = fileType.startsWith('image/') || 
+                   fileName.endsWith('.jpg') || 
+                   fileName.endsWith('.jpeg') || 
+                   fileName.endsWith('.png') ||
+                   fileName.endsWith('.gif') ||
+                   fileName.endsWith('.webp');
+    
+    if (isPDF) {
         const fileReader = new FileReader();
+        fileReader.onerror = function() {
+            console.error('Error reading PDF file');
+            showToast('Error reading PDF file');
+            if (elements.loadingState) {
+                elements.loadingState.classList.add('hidden');
+            }
+            if (elements.emptyState) {
+                elements.emptyState.classList.remove('hidden');
+            }
+        };
         fileReader.onload = async function(e) {
             try {
+                if (!e.target || !e.target.result) {
+                    throw new Error('No file data');
+                }
                 const typedArray = new Uint8Array(e.target.result);
                 const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise;
                 const page = await pdf.getPage(1);
@@ -624,6 +815,9 @@ function handleFileUpload(file) {
                 
                 const canvas = document.createElement('canvas');
                 const context = canvas.getContext('2d');
+                if (!context) {
+                    throw new Error('Could not get canvas context');
+                }
                 canvas.width = viewport.width;
                 canvas.height = viewport.height;
                 
@@ -635,37 +829,78 @@ function handleFileUpload(file) {
                 const dataUrl = canvas.toDataURL();
                 loadImage(dataUrl);
             } catch (error) {
-                showToast('Error loading PDF file');
-                elements.loadingState.classList.add('hidden');
-                elements.emptyState.classList.remove('hidden');
+                console.error('Error loading PDF:', error);
+                showToast('Error loading PDF file: ' + (error.message || 'Unknown error'));
+                if (elements.loadingState) {
+                    elements.loadingState.classList.add('hidden');
+                }
+                if (elements.emptyState) {
+                    elements.emptyState.classList.remove('hidden');
+                }
             }
         };
         fileReader.readAsArrayBuffer(file);
-    } else if (fileType.startsWith('image/')) {
+    } else if (isImage) {
         const reader = new FileReader();
+        reader.onerror = function() {
+            console.error('Error reading image file');
+            showToast('Error reading image file');
+            if (elements.loadingState) {
+                elements.loadingState.classList.add('hidden');
+            }
+            if (elements.emptyState) {
+                elements.emptyState.classList.remove('hidden');
+            }
+        };
         reader.onload = function(e) {
+            if (!e.target || !e.target.result) {
+                showToast('Error reading image file');
+                if (elements.loadingState) {
+                    elements.loadingState.classList.add('hidden');
+                }
+                if (elements.emptyState) {
+                    elements.emptyState.classList.remove('hidden');
+                }
+                return;
+            }
             loadImage(e.target.result);
         };
         reader.readAsDataURL(file);
     } else {
         showToast('Unsupported file type. Please upload JPG, PNG, or PDF');
-        elements.loadingState.classList.add('hidden');
-        elements.emptyState.classList.remove('hidden');
+        if (elements.loadingState) {
+            elements.loadingState.classList.add('hidden');
+        }
+        if (elements.emptyState) {
+            elements.emptyState.classList.remove('hidden');
+        }
     }
 }
 
 function loadImage(dataUrl) {
     const img = new Image();
     img.onload = function() {
-        state.image = img;
-        state.imageData = dataUrl;
-        
+        try {
+            state.image = img;
+            state.imageData = dataUrl;
+            
+            elements.loadingState.classList.add('hidden');
+            elements.canvas.classList.remove('hidden');
+            elements.zoomControls.classList.remove('hidden');
+            
+            resizeCanvas();
+            renderCanvas();
+        } catch (error) {
+            console.error('Error loading image:', error);
+            showToast('Error loading image');
+            elements.loadingState.classList.add('hidden');
+            elements.emptyState.classList.remove('hidden');
+        }
+    };
+    img.onerror = function() {
+        showToast('Error loading image file');
         elements.loadingState.classList.add('hidden');
-        elements.canvas.classList.remove('hidden');
-        elements.zoomControls.classList.remove('hidden');
-        
-        resizeCanvas();
-        renderCanvas();
+        elements.emptyState.classList.remove('hidden');
     };
     img.src = dataUrl;
 }
@@ -771,6 +1006,16 @@ function handleCanvasClick(e) {
 }
 
 function handleMouseDown(e) {
+    // Handle screenshot selection mode
+    if (state.isSelectingScreenshot && e.button === 0) {
+        e.preventDefault();
+        const point = getCanvasPoint(e.clientX, e.clientY);
+        state.screenshotSelectionStart = point;
+        state.screenshotSelectionEnd = point;
+        renderCanvas();
+        return;
+    }
+    
     if (e.button === 1 || e.button === 2 || (e.button === 0 && e.shiftKey)) {
         e.preventDefault();
         state.isPanning = true;
@@ -798,6 +1043,14 @@ function handleMouseMove(e) {
             x: e.clientX - state.panStart.x,
             y: e.clientY - state.panStart.y
         };
+        renderCanvas();
+        return;
+    }
+    
+    // Handle screenshot selection drag
+    if (state.isSelectingScreenshot && state.screenshotSelectionStart) {
+        const point = getCanvasPoint(e.clientX, e.clientY);
+        state.screenshotSelectionEnd = point;
         renderCanvas();
         return;
     }
@@ -865,6 +1118,39 @@ function handleMouseUp(e) {
     const wasDrawingRectangle = state.isDrawingRectangle;
     state.isPanning = false;
     elements.canvas.classList.remove('panning');
+    
+    // Handle screenshot selection end
+    if (state.isSelectingScreenshot && state.screenshotSelectionStart && state.screenshotSelectionEnd && e.button === 0) {
+        e.preventDefault();
+        // Validate selection
+        const imagePos = getImagePosition();
+        if (imagePos) {
+            const startCanvas = {
+                x: state.screenshotSelectionStart.x + imagePos.x,
+                y: state.screenshotSelectionStart.y + imagePos.y
+            };
+            const endCanvas = {
+                x: state.screenshotSelectionEnd.x + imagePos.x,
+                y: state.screenshotSelectionEnd.y + imagePos.y
+            };
+            const selectionWidth = Math.abs(endCanvas.x - startCanvas.x);
+            const selectionHeight = Math.abs(endCanvas.y - startCanvas.y);
+            
+            if (selectionWidth >= 10 && selectionHeight >= 10) {
+                // Create screenshot from selection (don't reset selection mode here - it will be reset in createScreenshotFromSelection)
+                createScreenshotFromSelection();
+            } else {
+                showToast('Selection too small. Please select a larger area.');
+                // Reset selection mode if selection is too small
+                state.isSelectingScreenshot = false;
+                state.screenshotSelectionStart = null;
+                state.screenshotSelectionEnd = null;
+                elements.canvas.style.cursor = 'default';
+            }
+        }
+        renderCanvas();
+        return;
+    }
     
     // Handle rectangle tool drag end (including subtract mode)
     if ((state.currentTool === 'rectangle' || state.currentTool === 'subtract') && state.currentRectangleStart && state.isDrawingRectangle && e.button === 0) {
@@ -1026,11 +1312,7 @@ function zoomToPoint(zoomFactor, mouseX, mouseY) {
 function handleWheel(e) {
     e.preventDefault();
     
-    // Block zoom if drawing has started (at least one point exists)
-    if (state.points.length > 0) {
-        return;
-    }
-    
+    // Allow zoom even after drawing has started
     // Get mouse position relative to canvas
     const rect = elements.canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
@@ -1043,11 +1325,7 @@ function handleWheel(e) {
 }
 
 function handleZoomIn() {
-    // Block zoom if drawing has started
-    if (state.points.length > 0) {
-        return;
-    }
-    
+    // Allow zoom even after drawing has started
     // Zoom to canvas center when using buttons
     const centerX = elements.canvas.width / 2;
     const centerY = elements.canvas.height / 2;
@@ -1057,11 +1335,7 @@ function handleZoomIn() {
 }
 
 function handleZoomOut() {
-    // Block zoom if drawing has started
-    if (state.points.length > 0) {
-        return;
-    }
-    
+    // Allow zoom even after drawing has started
     // Zoom to canvas center when using buttons
     const centerX = elements.canvas.width / 2;
     const centerY = elements.canvas.height / 2;
@@ -1179,40 +1453,78 @@ function renderFullImageForScreenshot(ctx, imageWidth, imageHeight) {
     }
     
     // Calculate the coordinate transformation
-    // Points are stored in canvas coordinate space (in transformed space after zoom/pan)
-    // The image is positioned at (imageX, imageY) in that coordinate space
-    // We need to map from canvas coordinates to screenshot coordinates
+    // The key insight: In renderCanvas(), the coordinate system is transformed by:
+    // ctx.translate(state.pan.x, state.pan.y) and ctx.scale(state.zoom, state.zoom)
+    // Then the image is drawn at: (canvas.width/zoom - width)/2 in transformed space
+    //
+    // Points are stored as: (clientX - rect.left - pan.x) / zoom
+    // This gives coordinates in the transformed space.
+    //
+    // The problem: The image position in transformed space is (canvas.width/zoom - width)/2
+    // This changes with zoom! At zoom=1.0 it's (canvas.width - width)/2, at zoom=2.0 it's (canvas.width/2 - width)/2
+    //
+    // But points are stored in transformed space coordinates. The solution is to realize that
+    // points are ALWAYS in the same coordinate system regardless of when they were created,
+    // because getCanvasPoint divides by zoom. So we need to use the image position at zoom=1.0.
     
-    // Calculate where the image is positioned in the transformed coordinate space (at zoom=1.0, pan=0,0)
-    // This matches how the image is positioned in renderCanvas()
+    // Calculate the image dimensions - same as in renderCanvas()
     const maxWidth = elements.canvas.width - 40;
     const maxHeight = elements.canvas.height - 40;
     const originalScale = Math.min(maxWidth / state.image.width, maxHeight / state.image.height, 1);
     const originalImageWidth = state.image.width * originalScale;
     const originalImageHeight = state.image.height * originalScale;
     
-    // In renderCanvas, at zoom=1.0, the image is positioned at:
-    // x = (elements.canvas.width / 1.0 - width) / 2 = (elements.canvas.width - width) / 2
-    // y = (elements.canvas.height / 1.0 - height) / 2 = (elements.canvas.height - height) / 2
-    const originalImageX = (elements.canvas.width - originalImageWidth) / 2;
-    const originalImageY = (elements.canvas.height - originalImageHeight) / 2;
+    // The real solution: Points are stored in transformed space coordinates, normalized by zoom.
+    // In getCanvasPoint: x = (clientX - rect.left - pan.x) / zoom
+    // This means points are in the coordinate system AFTER the transformation, but normalized.
+    //
+    // In renderCanvas, the image is positioned at (canvas.width/zoom - width)/2 in transformed space.
+    // This position changes with zoom. But since points are normalized (divided by zoom),
+    // we need to use the image position at zoom=1.0 as the reference.
+    //
+    // However, there's a subtlety: The image position formula (canvas.width/zoom - width)/2
+    // ensures the image is centered. At zoom=1.0, this is (canvas.width - width)/2.
+    // But this is in transformed space AFTER the transformation is applied.
+    //
+    // Since points are normalized to zoom=1.0 (divided by zoom in getCanvasPoint),
+    // we should use the image position at zoom=1.0, which is (canvas.width - width)/2.
+    // However, we need to be careful: The image position in renderCanvas is calculated
+    // as (canvas.width/zoom - width)/2. At zoom=1.0, this is (canvas.width - width)/2.
+    // But we're using this for screenshot, where we want the image at full size.
+    //
+    // Actually, I think the issue might be that we need to account for the fact that
+    // the canvas size might be different. Let's use the same calculation as renderCanvas
+    // but for zoom=1.0:
+    const originalImageX = (elements.canvas.width / 1.0 - originalImageWidth) / 2;
+    const originalImageY = (elements.canvas.height / 1.0 - originalImageHeight) / 2;
     
     // Calculate scale factors to map from original canvas coordinates to screenshot coordinates
-    // The screenshot image uses the same scale as the original, so we scale proportionally
     const scaleX = imageWidth / originalImageWidth;
     const scaleY = imageHeight / originalImageHeight;
     
     // Helper function to transform a point from canvas coordinates to screenshot coordinates
     const transformPoint = (point) => {
-        // Points are stored in the transformed coordinate space (same as renderCanvas uses)
+        // Points are stored in transformed coordinate space, normalized to zoom=1.0
+        // (because getCanvasPoint divides by zoom). The image position in this space
+        // should be (canvas.width - width)/2 at zoom=1.0.
+        //
+        // However, there's a subtle issue: The image position in renderCanvas is
+        // (canvas.width/zoom - width)/2, which changes with zoom. But points are
+        // normalized by dividing by zoom in getCanvasPoint.
+        //
+        // The solution: We need to ensure we're using the same coordinate system.
+        // Since points are normalized (divided by zoom), we should use the image
+        // position at zoom=1.0, which is (canvas.width - width)/2.
+        
         // First, subtract the image offset to get coordinates relative to image top-left
         const relativeX = point.x - originalImageX;
         const relativeY = point.y - originalImageY;
         
         // Check if point is within image bounds (with some tolerance)
-        if (relativeX < -10 || relativeX > originalImageWidth + 10 || 
-            relativeY < -10 || relativeY > originalImageHeight + 10) {
-            // Point is outside image bounds, return a position that will be clipped
+        // But actually, let's be more lenient - points might be slightly outside due to rounding
+        if (relativeX < -50 || relativeX > originalImageWidth + 50 || 
+            relativeY < -50 || relativeY > originalImageHeight + 50) {
+            // Point is way outside image bounds, return a position that will be clipped
             return { x: -1000, y: -1000 };
         }
         
@@ -1371,122 +1683,305 @@ function handleTakeScreenshot() {
         return;
     }
     
+    // Check if canvas is visible
+    if (elements.canvas.classList.contains('hidden')) {
+        showToast('Canvas is not visible');
+        return;
+    }
+    
+    // If already in selection mode, cancel it
+    if (state.isSelectingScreenshot) {
+        state.isSelectingScreenshot = false;
+        state.screenshotSelectionStart = null;
+        state.screenshotSelectionEnd = null;
+        elements.canvas.style.cursor = 'default';
+        renderCanvas();
+        showToast('Screenshot selection cancelled');
+        return;
+    }
+    
+    // Enter screenshot selection mode
+    state.isSelectingScreenshot = true;
+    state.screenshotSelectionStart = null;
+    state.screenshotSelectionEnd = null;
+    elements.canvas.style.cursor = 'crosshair';
+    showToast('Select area for screenshot (drag to select)');
+    renderCanvas();
+}
+
+function createScreenshotFromSelection() {
+    if (!state.image) {
+        showToast('Please upload a drawing first');
+        return;
+    }
+    
     const projectName = elements.projectNameInput.value.trim() || 'Project';
     
-    // Calculate the actual image dimensions (at zoom=1.0, fitted to canvas)
-    const maxWidth = elements.canvas.width - 40;
-    const maxHeight = elements.canvas.height - 40;
-    const scale = Math.min(maxWidth / state.image.width, maxHeight / state.image.height, 1);
-    const imageWidth = Math.round(state.image.width * scale);
-    const imageHeight = Math.round(state.image.height * scale);
-    
-    // Calculate statistics
-    const totalArea = state.polygons.reduce((sum, p) => sum + p.areaInSquareMeters, 0);
-    const polygonsCount = state.polygons.length;
-    const pipes = state.lines.filter(line => line.isPipe === true);
-    const pipesCount = pipes.length;
-    const pipesTotalLength = pipes.reduce((sum, pipe) => sum + (pipe.lengthInMeters || 0), 0);
-    
-    // Calculate overlay height based on content
-    // Base section: project name (40px) + date/time (30px) + stats section
-    const statsSectionHeight = (pipesCount > 0 ? 22 * 2 : 22); // lineHeight * number of lines
-    const baseSectionHeight = 40 + 30; // project name + date/time sections
-    const statsStartY = baseSectionHeight + 15; // gap after date/time
-    const polygonsSectionStart = statsStartY + statsSectionHeight + 15; // gap after stats
-    const polygonsHeadingHeight = 25; // "Polygons:" heading with spacing
-    const polygonsListHeight = polygonsCount > 0 ? polygonsHeadingHeight + (polygonsCount * 18) : 0;
-    const bottomPadding = 20; // padding at bottom
-    const overlayHeight = baseSectionHeight + statsSectionHeight + 15 + polygonsListHeight + bottomPadding;
-    
-    // Create a new canvas for the screenshot with overlay
-    const screenshotCanvas = document.createElement('canvas');
-    screenshotCanvas.width = imageWidth;
-    screenshotCanvas.height = imageHeight + overlayHeight;
-    const ctx = screenshotCanvas.getContext('2d');
-    
-    // Render the full image with all drawings
-    renderFullImageForScreenshot(ctx, imageWidth, imageHeight);
-    
-    // Prepare overlay information
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-    const dateTimeStr = `${dateStr} ${timeStr}`;
-    
-    // Draw overlay background
-    const overlayY = imageHeight;
-    ctx.fillStyle = 'rgba(37, 99, 235, 0.95)';
-    ctx.fillRect(0, overlayY, screenshotCanvas.width, overlayHeight);
-    
-    // Draw project name (centered vertically in top section)
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 24px Inter, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    // Top section: first 40px of overlay, center at 20px
-    const projectNameY = overlayY + 20;
-    ctx.fillText(projectName, screenshotCanvas.width / 2, projectNameY);
-    
-    // Draw date and time (centered vertically in second section)
-    ctx.font = '500 14px Inter, sans-serif';
-    // Second section: next 30px, center at 55px from overlay start
-    const dateTimeY = overlayY + 55;
-    ctx.fillText(dateTimeStr, screenshotCanvas.width / 2, dateTimeY);
-    
-    // Draw statistics (left column) - vertically centered
-    ctx.font = '500 16px Inter, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    const statsX = 30;
-    const lineHeight = 22;
-    
-    // Calculate center Y for statistics section (2 lines if pipes exist, 1 line otherwise)
-    const statsCenterY = overlayY + statsStartY + statsSectionHeight / 2;
-    
-    // Draw Total Area (centered vertically in stats section)
-    const totalAreaY = pipesCount > 0 ? statsCenterY - lineHeight / 2 : statsCenterY;
-    ctx.fillText(`Total Area: ${totalArea.toFixed(2)} m²`, statsX, totalAreaY);
-    
-    // Draw Total Pipes (centered vertically in stats section)
-    if (pipesCount > 0) {
-        ctx.fillText(`Total Pipes: ${pipesTotalLength.toFixed(2)} m`, statsX, statsCenterY + lineHeight / 2);
+    // Get image position helper
+    const imagePos = getImagePosition();
+    if (!imagePos) {
+        showToast('Error: Could not determine image position');
+        return;
     }
     
-    // Draw polygons list (properly spaced)
-    let currentY = overlayY + polygonsSectionStart;
-    if (polygonsCount > 0) {
-        ctx.font = '600 16px Inter, sans-serif';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('Polygons:', statsX, currentY + 10);
-        currentY += 25;
-        
-        ctx.font = '500 14px Inter, sans-serif';
-        state.polygons.forEach((polygon, index) => {
-            const displayName = polygon.name || `Polygon ${index + 1}`;
-            const area = polygon.areaInSquareMeters.toFixed(2);
-            // Center each polygon line vertically in its 18px height
-            ctx.fillText(`  • ${displayName}: ${area} m²`, statsX, currentY + 9);
-            currentY += 18;
-        });
+    // Validate selection size first (using image-relative coordinates)
+    const selectionWidth = Math.abs(state.screenshotSelectionEnd.x - state.screenshotSelectionStart.x);
+    const selectionHeight = Math.abs(state.screenshotSelectionEnd.y - state.screenshotSelectionStart.y);
+    
+    if (selectionWidth < 10 || selectionHeight < 10) {
+        showToast('Selection too small. Please select a larger area.');
+        return;
     }
     
-    // Convert to blob and download
-    screenshotCanvas.toBlob((blob) => {
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
+    try {
+        // Validate that we have image data
+        if (!state.image || !state.image.complete) {
+            showToast('Error: Image is not loaded');
+            return;
+        }
         
-        // Create filename: ProjectName-YYYYMMDD-HHMM.png
-        const dateForFilename = now.toISOString().slice(0, 19).replace(/[:-]/g, '').replace('T', '-');
-        const safeProjectName = projectName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-        const filename = `${safeProjectName}-${dateForFilename}.png`;
+        // Save current zoom and pan
+        const savedZoom = state.zoom;
+        const savedPan = { x: state.pan.x, y: state.pan.y };
         
-        link.download = filename;
-        link.click();
+        // Temporarily reset zoom and pan to 1.0 and 0,0
+        state.zoom = 1.0;
+        state.pan = { x: 0, y: 0 };
         
-        URL.revokeObjectURL(url);
-        showToast('Screenshot saved');
-    }, 'image/png');
+        // Render canvas at zoom=1.0
+        renderCanvas();
+        
+        // Use requestAnimationFrame to ensure rendering is complete
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+            // Get image position at zoom=1.0
+            const imagePosAtZoom1 = getImagePosition();
+            if (!imagePosAtZoom1) {
+                // Restore zoom and pan
+                state.zoom = savedZoom;
+                state.pan = savedPan;
+                renderCanvas();
+                showToast('Error: Could not determine image position');
+                return;
+            }
+            
+            // Convert selection points from image-relative to canvas coordinates at zoom=1.0
+            const startCanvas = {
+                x: state.screenshotSelectionStart.x + imagePosAtZoom1.x,
+                y: state.screenshotSelectionStart.y + imagePosAtZoom1.y
+            };
+            const endCanvas = {
+                x: state.screenshotSelectionEnd.x + imagePosAtZoom1.x,
+                y: state.screenshotSelectionEnd.y + imagePosAtZoom1.y
+            };
+            
+            // Calculate selection rectangle in canvas coordinates at zoom=1.0
+            const selectionX = Math.min(startCanvas.x, endCanvas.x);
+            const selectionY = Math.min(startCanvas.y, endCanvas.y);
+            const selectionWidthAtZoom1 = Math.abs(endCanvas.x - startCanvas.x);
+            const selectionHeightAtZoom1 = Math.abs(endCanvas.y - startCanvas.y);
+            
+            // Validate and clip selection coordinates to canvas bounds
+            // Instead of rejecting, we'll clip the selection to fit within canvas
+            const canvasWidth = elements.canvas.width;
+            const canvasHeight = elements.canvas.height;
+            
+            // Clip selection to canvas bounds
+            const clippedX = Math.max(0, Math.min(selectionX, canvasWidth));
+            const clippedY = Math.max(0, Math.min(selectionY, canvasHeight));
+            const clippedWidth = Math.min(selectionWidthAtZoom1, canvasWidth - clippedX);
+            const clippedHeight = Math.min(selectionHeightAtZoom1, canvasHeight - clippedY);
+            
+            // Check if selection is valid (has some area)
+            if (clippedWidth <= 0 || clippedHeight <= 0) {
+                // Restore zoom and pan
+                state.zoom = savedZoom;
+                state.pan = savedPan;
+                renderCanvas();
+                showToast('Selection is too small or outside canvas bounds');
+                // Reset selection mode
+                state.isSelectingScreenshot = false;
+                state.screenshotSelectionStart = null;
+                state.screenshotSelectionEnd = null;
+                elements.canvas.style.cursor = 'default';
+                return;
+            }
+            
+            // Use clipped coordinates
+            const finalSelectionX = clippedX;
+            const finalSelectionY = clippedY;
+            const finalSelectionWidth = clippedWidth;
+            const finalSelectionHeight = clippedHeight;
+            
+            // Extract the selected area directly from the canvas BEFORE restoring zoom/pan
+            const imageCanvas = document.createElement('canvas');
+            imageCanvas.width = Math.round(finalSelectionWidth);
+            imageCanvas.height = Math.round(finalSelectionHeight);
+            const imageCtx = imageCanvas.getContext('2d');
+            
+            // Draw the selected area from the main canvas (canvas is still at zoom=1.0)
+            imageCtx.drawImage(
+                elements.canvas,
+                finalSelectionX, finalSelectionY, finalSelectionWidth, finalSelectionHeight,  // source rectangle
+                0, 0, imageCanvas.width, imageCanvas.height  // destination rectangle
+            );
+            
+            // Now restore zoom and pan
+            state.zoom = savedZoom;
+            state.pan = savedPan;
+            renderCanvas();
+            
+            // Continue with creating the screenshot with overlay
+            // Now create the final canvas with overlay
+                // Calculate statistics
+                const totalArea = state.polygons.reduce((sum, p) => sum + p.areaInSquareMeters, 0);
+                const polygonsCount = state.polygons.length;
+                const pipes = state.lines.filter(line => line.isPipe === true);
+                const pipesCount = pipes.length;
+                const pipesTotalLength = pipes.reduce((sum, pipe) => sum + (pipe.lengthInMeters || 0), 0);
+                
+                // Calculate overlay height based on content
+                const statsSectionHeight = (pipesCount > 0 ? 22 * 2 : 22);
+                const baseSectionHeight = 40 + 30;
+                const statsStartY = baseSectionHeight + 15;
+                const polygonsSectionStart = statsStartY + statsSectionHeight + 15;
+                const polygonsHeadingHeight = 25;
+                const polygonsListHeight = polygonsCount > 0 ? polygonsHeadingHeight + (polygonsCount * 18) : 0;
+                const bottomPadding = 20;
+                const overlayHeight = baseSectionHeight + statsSectionHeight + 15 + polygonsListHeight + bottomPadding;
+                
+                // Create a new canvas for the screenshot with overlay
+                const screenshotCanvas = document.createElement('canvas');
+                screenshotCanvas.width = imageCanvas.width;
+                screenshotCanvas.height = imageCanvas.height + overlayHeight;
+                const ctx = screenshotCanvas.getContext('2d');
+                
+                // Draw the image canvas (with all drawings already on it)
+                ctx.drawImage(imageCanvas, 0, 0);
+                
+                // Prepare overlay information
+                const now = new Date();
+                const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                const dateTimeStr = `${dateStr} ${timeStr}`;
+                
+                // Draw overlay background
+                const overlayY = imageCanvas.height;
+                ctx.fillStyle = 'rgba(37, 99, 235, 0.95)';
+                ctx.fillRect(0, overlayY, screenshotCanvas.width, overlayHeight);
+                
+                // Draw project name (centered vertically in top section)
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 24px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                // Top section: first 40px of overlay, center at 20px
+                const projectNameY = overlayY + 20;
+                ctx.fillText(projectName, screenshotCanvas.width / 2, projectNameY);
+                
+                // Draw date and time (centered vertically in second section)
+                ctx.font = '500 14px Inter, sans-serif';
+                // Second section: next 30px, center at 55px from overlay start
+                const dateTimeY = overlayY + 55;
+                ctx.fillText(dateTimeStr, screenshotCanvas.width / 2, dateTimeY);
+                
+                // Draw statistics (left column) - vertically centered
+                ctx.font = '500 16px Inter, sans-serif';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+                const statsX = 30;
+                const lineHeight = 22;
+                
+                // Calculate center Y for statistics section (2 lines if pipes exist, 1 line otherwise)
+                const statsCenterY = overlayY + statsStartY + statsSectionHeight / 2;
+                
+                // Draw Total Area (centered vertically in stats section)
+                const totalAreaY = pipesCount > 0 ? statsCenterY - lineHeight / 2 : statsCenterY;
+                ctx.fillText(`Total Area: ${totalArea.toFixed(2)} m²`, statsX, totalAreaY);
+                
+                // Draw Total Pipes (centered vertically in stats section)
+                if (pipesCount > 0) {
+                    ctx.fillText(`Total Pipes: ${pipesTotalLength.toFixed(2)} m`, statsX, statsCenterY + lineHeight / 2);
+                }
+                
+                // Draw polygons list (properly spaced)
+                let currentY = overlayY + polygonsSectionStart;
+                if (polygonsCount > 0) {
+                    ctx.font = '600 16px Inter, sans-serif';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('Polygons:', statsX, currentY + 10);
+                    currentY += 25;
+                    
+                    ctx.font = '500 14px Inter, sans-serif';
+                    state.polygons.forEach((polygon, index) => {
+                        const displayName = polygon.name || `Polygon ${index + 1}`;
+                        const area = polygon.areaInSquareMeters.toFixed(2);
+                        // Center each polygon line vertically in its 18px height
+                        ctx.fillText(`  • ${displayName}: ${area} m²`, statsX, currentY + 9);
+                        currentY += 18;
+                    });
+                }
+        
+                // Convert to blob and download
+                screenshotCanvas.toBlob((blob) => {
+                    if (!blob) {
+                        showToast('Error: Failed to create screenshot blob');
+                        console.error('Failed to create blob from canvas');
+                        return;
+                    }
+                    
+                    try {
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        
+                        // Create filename: ProjectName-YYYYMMDD-HHMM.png
+                        const dateForFilename = now.toISOString().slice(0, 19).replace(/[:-]/g, '').replace('T', '-');
+                        const safeProjectName = projectName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+                        const filename = `${safeProjectName}-${dateForFilename}.png`;
+                        
+                        link.download = filename;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        
+                        setTimeout(() => {
+                            URL.revokeObjectURL(url);
+                        }, 100);
+                        
+                        // Reset selection mode after successful screenshot
+                        state.isSelectingScreenshot = false;
+                        state.screenshotSelectionStart = null;
+                        state.screenshotSelectionEnd = null;
+                        elements.canvas.style.cursor = 'default';
+                        renderCanvas();
+                        
+                        showToast('Screenshot saved');
+                    } catch (error) {
+                        showToast('Error downloading screenshot: ' + error.message);
+                        console.error('Download error:', error);
+                        // Reset selection mode on error
+                        state.isSelectingScreenshot = false;
+                        state.screenshotSelectionStart = null;
+                        state.screenshotSelectionEnd = null;
+                        elements.canvas.style.cursor = 'default';
+                        renderCanvas();
+                    }
+                }, 'image/png');
+                });
+            });
+        }, 50);  // Small delay to ensure rendering is complete
+        } catch (error) {
+            showToast('Error creating screenshot: ' + error.message);
+            console.error('Screenshot creation error:', error);
+            // Reset selection mode on error
+            state.isSelectingScreenshot = false;
+            state.screenshotSelectionStart = null;
+            state.screenshotSelectionEnd = null;
+            elements.canvas.style.cursor = 'default';
+            renderCanvas();
+        }
 }
 
 // ==================== Calibration Modal ====================
@@ -1790,13 +2285,8 @@ function updateUI() {
     elements.toggleLengthLabelsBtn.classList.toggle('active', state.showLengthLabels);
     elements.toggleAngleSnapBtn.classList.toggle('active', state.angleSnapEnabled);
     
-    // Hide zoom controls when drawing has started (after calibration)
-    const hasPoints = state.points.length > 0;
-    if (hasPoints) {
-        elements.zoomControls.classList.add('hidden');
-    } else {
-        elements.zoomControls.classList.remove('hidden');
-    }
+    // Keep zoom controls visible - zoom is now allowed even after drawing
+    elements.zoomControls.classList.remove('hidden');
 }
 
 function resizeCanvas() {
@@ -1809,15 +2299,94 @@ function resizeCanvas() {
 // ==================== Event Listeners ====================
 function initEventListeners() {
     // File upload
-    elements.uploadArea.addEventListener('click', () => {
-        elements.fileInput.click();
-    });
-    
-    elements.fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            handleFileUpload(e.target.files[0]);
+    if (elements.uploadArea && elements.fileInput) {
+        console.log('File upload elements found, setting up event listeners');
+        
+        // File input change - this will work with label click or direct file selection
+        elements.fileInput.addEventListener('change', (e) => {
+            console.log('File input changed', e.target.files);
+            if (e.target.files && e.target.files.length > 0) {
+                const file = e.target.files[0];
+                console.log('File selected:', file.name, file.type, file.size, 'bytes');
+                showToast(`Loading ${file.name}...`);
+                handleFileUpload(file);
+                // Reset input so same file can be selected again
+                e.target.value = '';
+            } else {
+                console.log('No files selected - user cancelled file selection');
+            }
+        });
+        
+        // Also add focus event to help debug
+        elements.fileInput.addEventListener('focus', () => {
+            console.log('File input focused');
+        });
+        
+        // Add click event to file input for debugging
+        elements.fileInput.addEventListener('click', () => {
+            console.log('File input clicked directly');
+        });
+        
+        // Drag and drop support
+        elements.uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            elements.uploadArea.style.borderColor = 'var(--primary)';
+            elements.uploadArea.style.backgroundColor = 'var(--surface)';
+        });
+        
+        elements.uploadArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            elements.uploadArea.style.borderColor = '';
+            elements.uploadArea.style.backgroundColor = '';
+        });
+        
+        elements.uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            elements.uploadArea.style.borderColor = '';
+            elements.uploadArea.style.backgroundColor = '';
+            
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                const file = e.dataTransfer.files[0];
+                console.log('File dropped:', file.name, file.type, file.size);
+                const fileType = file.type;
+                const fileName = file.name.toLowerCase();
+                
+                // Validate file type by MIME type or extension
+                const isPDF = fileType === 'application/pdf' || fileName.endsWith('.pdf');
+                const isImage = fileType.startsWith('image/') || 
+                               fileName.endsWith('.jpg') || 
+                               fileName.endsWith('.jpeg') || 
+                               fileName.endsWith('.png') ||
+                               fileName.endsWith('.gif') ||
+                               fileName.endsWith('.webp');
+                
+                if (isPDF || isImage) {
+                    handleFileUpload(file);
+                } else {
+                    showToast('Unsupported file type. Please upload JPG, PNG, or PDF');
+                }
+            }
+        });
+        
+        // Additional click handler for debugging (label should handle it, but this is backup)
+        elements.uploadArea.addEventListener('click', (e) => {
+            // If it's not the file input that was clicked, log it
+            if (e.target !== elements.fileInput) {
+                console.log('Upload area clicked (label should handle file input)');
+            }
+        });
+    } else {
+        console.error('Upload area or file input not found');
+        if (!elements.uploadArea) {
+            console.error('Upload area element missing');
         }
-    });
+        if (!elements.fileInput) {
+            console.error('File input element missing');
+        }
+    }
     
     // Canvas interactions
     elements.canvas.addEventListener('click', handleCanvasClick);
@@ -1920,11 +2489,39 @@ function initEventListeners() {
 
 // ==================== Initialization ====================
 function init() {
+    console.log('Initializing application...');
+    
+    // Validate critical elements exist
+    if (!elements.canvas) {
+        console.error('Canvas element not found');
+        return;
+    }
+    if (!elements.uploadArea) {
+        console.error('Upload area element not found');
+        showToast('Upload area not found. Please refresh the page.');
+    } else {
+        console.log('Upload area found:', elements.uploadArea);
+    }
+    if (!elements.fileInput) {
+        console.error('File input element not found');
+        showToast('File input not found. Please refresh the page.');
+    } else {
+        console.log('File input found:', elements.fileInput);
+    }
+    
     // Set initial collapsible states
-    elements.polygonsHeader.setAttribute('aria-expanded', 'true');
-    elements.pipesHeader.setAttribute('aria-expanded', 'false');
-    elements.pointsHeader.setAttribute('aria-expanded', 'false');
-    elements.instructionsHeader.setAttribute('aria-expanded', 'false');
+    if (elements.polygonsHeader) {
+        elements.polygonsHeader.setAttribute('aria-expanded', 'true');
+    }
+    if (elements.pipesHeader) {
+        elements.pipesHeader.setAttribute('aria-expanded', 'false');
+    }
+    if (elements.pointsHeader) {
+        elements.pointsHeader.setAttribute('aria-expanded', 'false');
+    }
+    if (elements.instructionsHeader) {
+        elements.instructionsHeader.setAttribute('aria-expanded', 'false');
+    }
     
     // Initialize event listeners
     initEventListeners();
