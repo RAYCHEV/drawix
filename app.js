@@ -1092,6 +1092,8 @@ function handleCanvasClick(e) {
         
         if (!state.calibration) {
             state.pendingCalibrationLine = newLine;
+            state.currentLineStart = null; // Stop drawing when opening calibration modal
+            state.cursorPosition = null; // Clear cursor position
             openCalibrationModal();
         } else {
             const pixelLength = calculateDistance(newLine.startPoint, newLine.endPoint);
@@ -1109,12 +1111,14 @@ function handleCanvasClick(e) {
             if (state.currentTool === 'subtract') {
                 state.currentLineStart = null;
                 state.cursorPosition = null; // Clear cursor position to prevent line preview
+            } else if (state.currentTool === 'line' || state.currentTool === 'pipe') {
+                // For line and pipe tools, continue drawing from the end point
+                // This allows continuous line drawing without needing to click again
+                state.currentLineStart = actualPoint;
+            } else {
+                // For other tools, stop drawing after completing a line
+                state.currentLineStart = null;
             }
-        }
-        
-        // Always stop drawing after completing a line (for non-subtract tools)
-        if (state.currentTool !== 'subtract') {
-            state.currentLineStart = null;
         }
     }
     
@@ -1151,6 +1155,21 @@ function handleMouseDown(e) {
             state.points.push(point);
         }
         renderCanvas();
+    }
+}
+
+function handleKeyDown(e) {
+    // ESC key cancels any active drawing
+    if (e.key === 'Escape' || e.key === 'Esc') {
+        if (state.currentLineStart || state.currentRectangleStart || state.isDrawingRectangle) {
+            state.currentLineStart = null;
+            state.currentRectangleStart = null;
+            state.isDrawingRectangle = false;
+            state.cursorPosition = null;
+            state.justFinishedRectangle = false;
+            renderCanvas();
+            showToast('Drawing cancelled');
+        }
     }
 }
 
@@ -2669,6 +2688,9 @@ function initEventListeners() {
     });
     elements.canvas.addEventListener('wheel', handleWheel);
     elements.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    
+    // Keyboard events for ESC to cancel drawing
+    document.addEventListener('keydown', handleKeyDown);
     
     // Zoom controls
     elements.zoomInBtn.addEventListener('click', handleZoomIn);
