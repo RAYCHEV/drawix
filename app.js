@@ -1025,6 +1025,11 @@ function loadImage(dataUrl) {
 function handleCanvasClick(e) {
     if (e.shiftKey || !state.image) return;
     
+    // Ignore clicks when in screenshot selection mode
+    if (state.isSelectingScreenshot) {
+        return;
+    }
+    
     // Rectangle tool uses drag (mousedown/mouseup), not click
     if (state.currentTool === 'rectangle') {
         return;
@@ -1281,6 +1286,8 @@ function handleMouseUp(e) {
                 state.isSelectingScreenshot = false;
                 state.screenshotSelectionStart = null;
                 state.screenshotSelectionEnd = null;
+                state.currentLineStart = null; // Prevent auto-starting a line after screenshot
+                state.cursorPosition = null; // Clear cursor position
                 elements.canvas.style.cursor = 'default';
             }
         }
@@ -2045,6 +2052,8 @@ function createScreenshotFromSelection() {
                 state.isSelectingScreenshot = false;
                 state.screenshotSelectionStart = null;
                 state.screenshotSelectionEnd = null;
+                state.currentLineStart = null; // Prevent auto-starting a line after screenshot
+                state.cursorPosition = null; // Clear cursor position
                 elements.canvas.style.cursor = 'default';
                 return;
             }
@@ -2195,6 +2204,8 @@ function createScreenshotFromSelection() {
                         state.isSelectingScreenshot = false;
                         state.screenshotSelectionStart = null;
                         state.screenshotSelectionEnd = null;
+                        state.currentLineStart = null; // Prevent auto-starting a line after screenshot
+                        state.cursorPosition = null; // Clear cursor position
                         elements.canvas.style.cursor = 'default';
                         renderCanvas();
                         
@@ -2206,6 +2217,8 @@ function createScreenshotFromSelection() {
                         state.isSelectingScreenshot = false;
                         state.screenshotSelectionStart = null;
                         state.screenshotSelectionEnd = null;
+                        state.currentLineStart = null; // Prevent auto-starting a line after screenshot
+                        state.cursorPosition = null; // Clear cursor position
                         elements.canvas.style.cursor = 'default';
                         renderCanvas();
                     }
@@ -2220,6 +2233,8 @@ function createScreenshotFromSelection() {
             state.isSelectingScreenshot = false;
             state.screenshotSelectionStart = null;
             state.screenshotSelectionEnd = null;
+            state.currentLineStart = null; // Prevent auto-starting a line after screenshot
+            state.cursorPosition = null; // Clear cursor position
             elements.canvas.style.cursor = 'default';
             renderCanvas();
         }
