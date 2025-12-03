@@ -58,7 +58,8 @@ const state = {
     pointSnapEnabled: true, // Toggle for point snapping
     isSelectingScreenshot: false, // Screenshot selection mode
     screenshotSelectionStart: null, // Start point of screenshot selection
-    screenshotSelectionEnd: null // End point of screenshot selection
+    screenshotSelectionEnd: null, // End point of screenshot selection
+    actionHistory: [] // History of actions for undo functionality
 };
 
 // ==================== DOM Elements ====================
@@ -860,6 +861,12 @@ function checkForClosedPolygon() {
             
             state.polygons.push(newPolygon);
             
+            // Record action for undo
+            state.actionHistory.push({
+                type: 'add_polygon',
+                data: { polygon: JSON.parse(JSON.stringify(newPolygon)) }
+            });
+            
             showToast(`Polygon detected! Area: ${area.toFixed(2)} m²`);
             updateUI();
             
@@ -1112,6 +1119,12 @@ function handleCanvasClick(e) {
             newLine.lengthInMeters = pixelLength / state.calibration.pixelsPerMeter;
             
             state.lines.push(newLine);
+            
+            // Record action for undo
+            state.actionHistory.push({
+                type: 'add_line',
+                data: { line: JSON.parse(JSON.stringify(newLine)) }
+            });
             // Only check for polygons if it's not a pipe
             // For subtract mode, check for closed polygon to subtract
             if (newLine.isPipe !== true) {
@@ -1171,6 +1184,17 @@ function handleMouseDown(e) {
 }
 
 function handleKeyDown(e) {
+    // Ctrl+Z or Cmd+Z for undo
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+        // Don't undo if user is typing in an input field
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+            return;
+        }
+        e.preventDefault();
+        handleUndo();
+        return;
+    }
+    
     // ESC key cancels any active drawing
     if (e.key === 'Escape' || e.key === 'Esc') {
         if (state.currentLineStart || state.currentRectangleStart || state.isDrawingRectangle) {
@@ -1433,6 +1457,15 @@ function handleMouseUp(e) {
         
         state.polygons.push(newPolygon);
         
+        // Record action for undo
+        state.actionHistory.push({
+            type: 'add_rectangle',
+            data: { 
+                polygon: JSON.parse(JSON.stringify(newPolygon)),
+                lines: rectangleLines.map(l => JSON.parse(JSON.stringify(l)))
+            }
+        });
+        
         if (area > 0) {
             showToast(`Rectangle created! Area: ${area.toFixed(2)} m²`);
         }
@@ -1520,47 +1553,177 @@ function handleClearAll() {
     state.currentRectangleStart = null;
     state.hoveredPoint = null;
     state.justFinishedRectangle = false;
+    state.actionHistory = []; // Clear history when clearing all
     updateUI();
     renderCanvas();
 }
 
-function handleUndoLastLine() {
-    // Check polygons first (including rectangles)
-    if (state.polygons.length > 0) {
-        const lastPolygon = state.polygons[state.polygons.length - 1];
-        state.polygons.pop();
-        
-        // Remove lines associated with this polygon
-        if (lastPolygon.lines) {
-            lastPolygon.lines.forEach(line => {
-                const index = state.lines.findIndex(l => l.id === line.id);
-                if (index !== -1) {
-                    state.lines.splice(index, 1);
-                }
-            });
-        }
-        
-        updateUI();
-        renderCanvas();
+function handleUndo() {
+    if (state.actionHistory.length === 0) {
+        showToast('Nothing to undo');
         return;
     }
     
-    // Then check standalone lines
-    if (state.lines.length === 0) return;
+    // Helper function to check if a point is still used by any line
+    const isPointUsed = (pointId) => {
+        return state.lines.some(line => 
+            (line.startPoint && line.startPoint.id === pointId) ||
+            (line.endPoint && line.endPoint.id === pointId)
+        );
+    };
     
-    const lastLine = state.lines[state.lines.length - 1];
-    state.lines.pop();
+    // Helper function to remove unused points
+    const removeUnusedPoints = (pointIds) => {
+        pointIds.forEach(pointId => {
+            if (pointId && !isPointUsed(pointId)) {
+                const pointIndex = state.points.findIndex(p => p.id === pointId);
+                if (pointIndex !== -1) {
+                    state.points.splice(pointIndex, 1);
+                }
+            }
+        });
+    };
     
-    state.polygons = state.polygons.filter(polygon =>
-        !polygon.lines.some(line => line.id === lastLine.id)
-    );
+    // Get the last action
+    const lastAction = state.actionHistory.pop();
+    
+    switch (lastAction.type) {
+        case 'add_line':
+            // Remove the line
+            const lineToRemove = lastAction.data.line;
+            const lineIndex = state.lines.findIndex(l => l.id === lineToRemove.id);
+            if (lineIndex !== -1) {
+                state.lines.splice(lineIndex, 1);
+            }
+            
+            // Remove unused points
+            const linePointIds = [];
+            if (lineToRemove.startPoint && lineToRemove.startPoint.id) {
+                linePointIds.push(lineToRemove.startPoint.id);
+            }
+            if (lineToRemove.endPoint && lineToRemove.endPoint.id) {
+                linePointIds.push(lineToRemove.endPoint.id);
+            }
+            removeUnusedPoints(linePointIds);
+            
+            // Remove polygon if it was created by this line
+            state.polygons = state.polygons.filter(polygon =>
+                !polygon.lines || !polygon.lines.some(l => l.id === lineToRemove.id)
+            );
+            break;
+            
+        case 'add_polygon':
+            // Remove the polygon and its lines
+            const polygonToRemove = lastAction.data.polygon;
+            const polygonIndex = state.polygons.findIndex(p => p.id === polygonToRemove.id);
+            if (polygonIndex !== -1) {
+                state.polygons.splice(polygonIndex, 1);
+            }
+            
+            // Remove lines associated with this polygon
+            const polygonPointIds = [];
+            if (polygonToRemove.lines) {
+                polygonToRemove.lines.forEach(line => {
+                    const index = state.lines.findIndex(l => l.id === line.id);
+                    if (index !== -1) {
+                        state.lines.splice(index, 1);
+                    }
+                    if (line.startPoint && line.startPoint.id) {
+                        polygonPointIds.push(line.startPoint.id);
+                    }
+                    if (line.endPoint && line.endPoint.id) {
+                        polygonPointIds.push(line.endPoint.id);
+                    }
+                });
+            }
+            
+            // Remove unused points
+            removeUnusedPoints(polygonPointIds);
+            break;
+            
+        case 'add_rectangle':
+            // Remove the rectangle polygon and its lines
+            const rectangleToRemove = lastAction.data.polygon;
+            const rectangleIndex = state.polygons.findIndex(p => p.id === rectangleToRemove.id);
+            if (rectangleIndex !== -1) {
+                state.polygons.splice(rectangleIndex, 1);
+            }
+            
+            // Remove rectangle lines
+            const rectanglePointIds = [];
+            if (lastAction.data.lines) {
+                lastAction.data.lines.forEach(line => {
+                    const index = state.lines.findIndex(l => l.id === line.id);
+                    if (index !== -1) {
+                        state.lines.splice(index, 1);
+                    }
+                    if (line.startPoint && line.startPoint.id) {
+                        rectanglePointIds.push(line.startPoint.id);
+                    }
+                    if (line.endPoint && line.endPoint.id) {
+                        rectanglePointIds.push(line.endPoint.id);
+                    }
+                });
+            }
+            
+            // Remove unused points
+            removeUnusedPoints(rectanglePointIds);
+            break;
+            
+        case 'set_calibration':
+            // Restore previous calibration or remove it
+            if (lastAction.data.previousCalibration) {
+                state.calibration = lastAction.data.previousCalibration;
+            } else {
+                state.calibration = null;
+            }
+            
+            // Remove calibration line
+            const calibrationLine = lastAction.data.line;
+            const calLineIndex = state.lines.findIndex(l => l.id === calibrationLine.id);
+            if (calLineIndex !== -1) {
+                state.lines.splice(calLineIndex, 1);
+            }
+            
+            // Remove unused points
+            const calPointIds = [];
+            if (calibrationLine.startPoint && calibrationLine.startPoint.id) {
+                calPointIds.push(calibrationLine.startPoint.id);
+            }
+            if (calibrationLine.endPoint && calibrationLine.endPoint.id) {
+                calPointIds.push(calibrationLine.endPoint.id);
+            }
+            removeUnusedPoints(calPointIds);
+            
+            // Recalculate all line lengths if calibration was removed
+            if (!state.calibration) {
+                state.lines.forEach(line => {
+                    if (line.lengthInMeters !== undefined && !line.isCalibration) {
+                        delete line.lengthInMeters;
+                    }
+                });
+            }
+            break;
+    }
+    
+    // Clear current drawing state
+    state.currentLineStart = null;
+    state.currentRectangleStart = null;
+    state.isDrawingRectangle = false;
+    state.cursorPosition = null;
     
     updateUI();
     renderCanvas();
+    showToast('Undo completed');
+}
+
+// Keep old function name for compatibility, but redirect to new function
+function handleUndoLastLine() {
+    handleUndo();
 }
 
 function handleNewProject() {
-    const hasData = state.points.length > 0 || state.lines.length > 0 || state.polygons.length > 0;
+    const hasData = state.points.length > 0 || state.lines.length > 0 || state.polygons.length > 0 || state.actionHistory.length > 0;
     
     if (hasData) {
         const confirmed = confirm('Are you sure you want to start a new project?\n\nAll current work will be lost and cannot be recovered.\n\nThis will refresh the page and clear the browser cache for this page.');
@@ -1582,6 +1745,7 @@ function handleRecalibrate() {
     state.polygons = [];
     state.currentLineStart = null;
     state.currentRectangleStart = null;
+    state.actionHistory = []; // Clear history when recalibrating
     updateUI();
     renderCanvas();
     showToast('Calibration reset. Draw a new reference line to recalibrate');
@@ -2292,6 +2456,8 @@ function handleCalibrationSubmit(e) {
     const line = state.pendingCalibrationLine;
     const pixelLength = calculateDistance(line.startPoint, line.endPoint);
     
+    const previousCalibration = state.calibration ? JSON.parse(JSON.stringify(state.calibration)) : null;
+    
     state.calibration = {
         pixelLength,
         realLengthInMeters: lengthInMeters,
@@ -2301,6 +2467,16 @@ function handleCalibrationSubmit(e) {
     line.lengthInMeters = lengthInMeters;
     line.isCalibration = true; // Mark this line as the calibration line
     state.lines.push(line);
+    
+    // Record action for undo
+    state.actionHistory.push({
+        type: 'set_calibration',
+        data: { 
+            calibration: JSON.parse(JSON.stringify(state.calibration)),
+            line: JSON.parse(JSON.stringify(line)),
+            previousCalibration: previousCalibration
+        }
+    });
     
     closeCalibrationModal();
     updateUI();
@@ -2602,7 +2778,7 @@ function updateUI() {
     
     // Update button states
     elements.recalibrateBtn.disabled = !state.calibration;
-    elements.undoBtn.disabled = state.lines.length === 0 && state.polygons.length === 0;
+    elements.undoBtn.disabled = state.actionHistory.length === 0;
     elements.clearBtn.disabled = state.points.length === 0;
     
     // Update toggle button states
