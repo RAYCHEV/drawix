@@ -27,6 +27,7 @@ const DEFAULT_CALIBRATION_LINE_COLOR = "#f59e0b"; // Orange color to distinguish
 let CALIBRATION_LINE_COLOR = DEFAULT_CALIBRATION_LINE_COLOR; // Can be changed via color picker
 const POINT_COLOR = "#2563eb";
 const POLYGON_FILL_COLOR = "rgba(37, 99, 235, 0.25)";
+const DEFAULT_POLYGON_COLOR = "#2563eb"; // Base color for polygons (without transparency)
 const SUBTRACT_FILL_COLOR = "rgba(220, 38, 38, 0.25)";
 const LINE_WIDTH = 3;
 const ANGLE_SNAP_TOLERANCE = 5; // degrees - snap to 90° angles within this tolerance
@@ -386,7 +387,13 @@ function renderCanvas() {
     // Draw polygons
     state.polygons.forEach(polygon => {
         if (polygon.isClosed && polygon.points.length > 0) {
-            ctx.fillStyle = POLYGON_FILL_COLOR;
+            // Use polygon's color or default, with transparency
+            const polygonColor = polygon.color || DEFAULT_POLYGON_COLOR;
+            ctx.fillStyle = hexToRgba(polygonColor, 0.25);
+            ctx.strokeStyle = hexToRgba(polygonColor, 0.6); // Border with 60% opacity
+            ctx.lineWidth = LINE_WIDTH / state.zoom; // Fixed screen width
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
             ctx.beginPath();
             const firstPoint = toCanvasPoint(polygon.points[0]);
             ctx.moveTo(firstPoint.x, firstPoint.y);
@@ -396,12 +403,18 @@ function renderCanvas() {
             }
             ctx.closePath();
             ctx.fill();
+            ctx.stroke();
             
             // Draw merged polygons (polygons that were merged into this one)
             if (polygon.mergedPolygons && polygon.mergedPolygons.length > 0) {
                 polygon.mergedPolygons.forEach(mergedPolygon => {
                     if (mergedPolygon.isClosed && mergedPolygon.points && mergedPolygon.points.length > 0) {
-                        ctx.fillStyle = POLYGON_FILL_COLOR;
+                        const mergedColor = mergedPolygon.color || DEFAULT_POLYGON_COLOR;
+                        ctx.fillStyle = hexToRgba(mergedColor, 0.25);
+                        ctx.strokeStyle = hexToRgba(mergedColor, 0.6); // Border with 60% opacity
+                        ctx.lineWidth = LINE_WIDTH / state.zoom; // Fixed screen width
+                        ctx.lineCap = 'round';
+                        ctx.lineJoin = 'round';
                         ctx.beginPath();
                         const firstMergedPoint = toCanvasPoint(mergedPolygon.points[0]);
                         ctx.moveTo(firstMergedPoint.x, firstMergedPoint.y);
@@ -411,6 +424,7 @@ function renderCanvas() {
                         }
                         ctx.closePath();
                         ctx.fill();
+                        ctx.stroke();
                     }
                 });
             }
@@ -454,7 +468,41 @@ function renderCanvas() {
             )
         );
         
-        ctx.strokeStyle = isCalibration ? CALIBRATION_LINE_COLOR : (isPipe ? PIPE_COLOR : (isSubtract ? SUBTRACT_COLOR : LINE_COLOR));
+        // Check if this line is part of a polygon - use polygon's color
+        let lineColor = LINE_COLOR;
+        if (isCalibration) {
+            lineColor = CALIBRATION_LINE_COLOR;
+        } else if (isPipe) {
+            lineColor = PIPE_COLOR;
+        } else if (isSubtract) {
+            lineColor = SUBTRACT_COLOR;
+        } else {
+            // Check if line belongs to a polygon (including merged polygons)
+            let containingPolygon = state.polygons.find(polygon => 
+                polygon.lines && polygon.lines.some(l => l.id === line.id)
+            );
+            
+            // Also check merged polygons
+            if (!containingPolygon) {
+                for (const polygon of state.polygons) {
+                    if (polygon.mergedPolygons) {
+                        const mergedPolygon = polygon.mergedPolygons.find(mp => 
+                            mp.lines && mp.lines.some(l => l.id === line.id)
+                        );
+                        if (mergedPolygon) {
+                            containingPolygon = mergedPolygon;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (containingPolygon) {
+                lineColor = containingPolygon.color || DEFAULT_POLYGON_COLOR;
+            }
+        }
+        
+        ctx.strokeStyle = lineColor;
         ctx.lineWidth = LINE_WIDTH / state.zoom;  // Fixed screen width
         ctx.lineCap = 'round';
         ctx.beginPath();
@@ -482,7 +530,43 @@ function renderCanvas() {
             const bgWidth = metrics.width + padding * 2;
             const bgHeight = 24 + padding * 2;
             
-            ctx.fillStyle = isCalibration ? hexToRgba(CALIBRATION_LINE_COLOR, 0.9) : (isPipe ? 'rgba(22, 163, 74, 0.9)' : (isSubtract ? 'rgba(220, 38, 38, 0.9)' : 'rgba(37, 99, 235, 0.9)'));
+            // Determine label background color based on line type and polygon color
+            let labelBgColor;
+            if (isCalibration) {
+                labelBgColor = hexToRgba(CALIBRATION_LINE_COLOR, 0.9);
+            } else if (isPipe) {
+                labelBgColor = 'rgba(22, 163, 74, 0.9)';
+            } else if (isSubtract) {
+                labelBgColor = 'rgba(220, 38, 38, 0.9)';
+            } else {
+                // Check if line belongs to a polygon (including merged polygons)
+                let containingPolygon = state.polygons.find(polygon => 
+                    polygon.lines && polygon.lines.some(l => l.id === line.id)
+                );
+                
+                // Also check merged polygons
+                if (!containingPolygon) {
+                    for (const polygon of state.polygons) {
+                        if (polygon.mergedPolygons) {
+                            const mergedPolygon = polygon.mergedPolygons.find(mp => 
+                                mp.lines && mp.lines.some(l => l.id === line.id)
+                            );
+                            if (mergedPolygon) {
+                                containingPolygon = mergedPolygon;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if (containingPolygon) {
+                    labelBgColor = hexToRgba(containingPolygon.color || DEFAULT_POLYGON_COLOR, 0.9);
+                } else {
+                    labelBgColor = 'rgba(37, 99, 235, 0.9)'; // Default blue
+                }
+            }
+            
+            ctx.fillStyle = labelBgColor;
             ctx.beginPath();
             ctx.roundRect(bgX, bgY, bgWidth, bgHeight, 6);
             ctx.fill();
@@ -591,15 +675,43 @@ function renderCanvas() {
         const isHovered = state.nearestSnapPoint?.id === point.id;
         const isStart = state.currentLineStart?.id === point.id;
         
+        // Find if point belongs to a polygon (including merged polygons)
+        let pointColor = POINT_COLOR;
+        if (!isStart) {
+            // Check if point belongs to a polygon
+            let containingPolygon = state.polygons.find(polygon => 
+                polygon.points && polygon.points.some(p => p.id === point.id)
+            );
+            
+            // Also check merged polygons
+            if (!containingPolygon) {
+                for (const polygon of state.polygons) {
+                    if (polygon.mergedPolygons) {
+                        const mergedPolygon = polygon.mergedPolygons.find(mp => 
+                            mp.points && mp.points.some(p => p.id === point.id)
+                        );
+                        if (mergedPolygon) {
+                            containingPolygon = mergedPolygon;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (containingPolygon) {
+                pointColor = containingPolygon.color || DEFAULT_POLYGON_COLOR;
+            }
+        }
+        
         if (isHovered) {
-            ctx.strokeStyle = POINT_COLOR;
+            ctx.strokeStyle = pointColor;
             ctx.lineWidth = 2 / state.zoom;  // Fixed screen width
             ctx.beginPath();
             ctx.arc(canvasPoint.x, canvasPoint.y, 7 / state.zoom, 0, Math.PI * 2);  // Fixed screen size
             ctx.stroke();
         }
         
-        ctx.fillStyle = isStart ? '#dc2626' : POINT_COLOR;
+        ctx.fillStyle = isStart ? '#dc2626' : pointColor;
         ctx.beginPath();
         ctx.arc(canvasPoint.x, canvasPoint.y, 5 / state.zoom, 0, Math.PI * 2);  // Fixed screen size
         ctx.fill();
@@ -735,7 +847,8 @@ function checkForClosedPolygon() {
                 lines: polygonLines,
                 areaInSquareMeters: area,
                 isClosed: true,
-                name: `Polygon ${state.polygons.length + 1}`
+                name: `Polygon ${state.polygons.length + 1}`,
+                color: DEFAULT_POLYGON_COLOR // Default color, can be changed via color picker
             };
             
             state.polygons.push(newPolygon);
@@ -1271,7 +1384,8 @@ function handleMouseUp(e) {
             areaInSquareMeters: area,
             isClosed: true,
             name: `Rectangle ${state.polygons.length + 1}`,
-            isRectangle: true
+            isRectangle: true,
+            color: DEFAULT_POLYGON_COLOR // Default color, can be changed via color picker
         };
         
         state.polygons.push(newPolygon);
@@ -1558,9 +1672,13 @@ function renderFullImageForScreenshot(ctx, imageWidth, imageHeight) {
     // Draw polygons
     state.polygons.forEach(polygon => {
         if (polygon.isClosed && polygon.points.length > 0) {
-            ctx.fillStyle = POLYGON_FILL_COLOR;
-            ctx.strokeStyle = LINE_COLOR;
+            // Use polygon's color or default, with transparency
+            const polygonColor = polygon.color || DEFAULT_POLYGON_COLOR;
+            ctx.fillStyle = hexToRgba(polygonColor, 0.25);
+            ctx.strokeStyle = hexToRgba(polygonColor, 0.6); // Border with 60% opacity
             ctx.lineWidth = LINE_WIDTH * scaleX;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
             ctx.beginPath();
             const firstTransformed = transformPoint(polygon.points[0]);
             ctx.moveTo(firstTransformed.x, firstTransformed.y);
@@ -1576,9 +1694,12 @@ function renderFullImageForScreenshot(ctx, imageWidth, imageHeight) {
             if (polygon.mergedPolygons && polygon.mergedPolygons.length > 0) {
                 polygon.mergedPolygons.forEach(mergedPolygon => {
                     if (mergedPolygon.isClosed && mergedPolygon.points && mergedPolygon.points.length > 0) {
-                        ctx.fillStyle = POLYGON_FILL_COLOR;
-                        ctx.strokeStyle = LINE_COLOR;
+                        const mergedColor = mergedPolygon.color || DEFAULT_POLYGON_COLOR;
+                        ctx.fillStyle = hexToRgba(mergedColor, 0.25);
+                        ctx.strokeStyle = hexToRgba(mergedColor, 0.6); // Border with 60% opacity
                         ctx.lineWidth = LINE_WIDTH * scaleX;
+                        ctx.lineCap = 'round';
+                        ctx.lineJoin = 'round';
                         ctx.beginPath();
                         const firstMergedTransformed = transformPoint(mergedPolygon.points[0]);
                         ctx.moveTo(firstMergedTransformed.x, firstMergedTransformed.y);
@@ -1629,7 +1750,41 @@ function renderFullImageForScreenshot(ctx, imageWidth, imageHeight) {
             )
         );
         
-        ctx.strokeStyle = isCalibration ? CALIBRATION_LINE_COLOR : (isPipe ? PIPE_COLOR : (isSubtract ? SUBTRACT_COLOR : LINE_COLOR));
+        // Check if this line is part of a polygon - use polygon's color
+        let lineColor = LINE_COLOR;
+        if (isCalibration) {
+            lineColor = CALIBRATION_LINE_COLOR;
+        } else if (isPipe) {
+            lineColor = PIPE_COLOR;
+        } else if (isSubtract) {
+            lineColor = SUBTRACT_COLOR;
+        } else {
+            // Check if line belongs to a polygon (including merged polygons)
+            let containingPolygon = state.polygons.find(polygon => 
+                polygon.lines && polygon.lines.some(l => l.id === line.id)
+            );
+            
+            // Also check merged polygons
+            if (!containingPolygon) {
+                for (const polygon of state.polygons) {
+                    if (polygon.mergedPolygons) {
+                        const mergedPolygon = polygon.mergedPolygons.find(mp => 
+                            mp.lines && mp.lines.some(l => l.id === line.id)
+                        );
+                        if (mergedPolygon) {
+                            containingPolygon = mergedPolygon;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (containingPolygon) {
+                lineColor = containingPolygon.color || DEFAULT_POLYGON_COLOR;
+            }
+        }
+        
+        ctx.strokeStyle = lineColor;
         ctx.lineWidth = LINE_WIDTH * scaleX;
         ctx.lineCap = 'round';
         ctx.beginPath();
@@ -1656,7 +1811,43 @@ function renderFullImageForScreenshot(ctx, imageWidth, imageHeight) {
             const bgWidth = metrics.width + padding * 2;
             const bgHeight = 24 + padding * 2;
             
-            ctx.fillStyle = isCalibration ? hexToRgba(CALIBRATION_LINE_COLOR, 0.9) : (isPipe ? 'rgba(22, 163, 74, 0.9)' : (isSubtract ? 'rgba(220, 38, 38, 0.9)' : 'rgba(37, 99, 235, 0.9)'));
+            // Determine label background color based on line type and polygon color
+            let labelBgColor;
+            if (isCalibration) {
+                labelBgColor = hexToRgba(CALIBRATION_LINE_COLOR, 0.9);
+            } else if (isPipe) {
+                labelBgColor = 'rgba(22, 163, 74, 0.9)';
+            } else if (isSubtract) {
+                labelBgColor = 'rgba(220, 38, 38, 0.9)';
+            } else {
+                // Check if line belongs to a polygon (including merged polygons)
+                let containingPolygon = state.polygons.find(polygon => 
+                    polygon.lines && polygon.lines.some(l => l.id === line.id)
+                );
+                
+                // Also check merged polygons
+                if (!containingPolygon) {
+                    for (const polygon of state.polygons) {
+                        if (polygon.mergedPolygons) {
+                            const mergedPolygon = polygon.mergedPolygons.find(mp => 
+                                mp.lines && mp.lines.some(l => l.id === line.id)
+                            );
+                            if (mergedPolygon) {
+                                containingPolygon = mergedPolygon;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if (containingPolygon) {
+                    labelBgColor = hexToRgba(containingPolygon.color || DEFAULT_POLYGON_COLOR, 0.9);
+                } else {
+                    labelBgColor = 'rgba(37, 99, 235, 0.9)'; // Default blue
+                }
+            }
+            
+            ctx.fillStyle = labelBgColor;
             ctx.beginPath();
             ctx.roundRect(bgX, bgY, bgWidth, bgHeight, 6);
             ctx.fill();
@@ -1672,7 +1863,33 @@ function renderFullImageForScreenshot(ctx, imageWidth, imageHeight) {
     state.points.forEach(point => {
         const transformed = transformPoint(point);
         
-        ctx.fillStyle = POINT_COLOR;
+        // Find if point belongs to a polygon (including merged polygons)
+        let pointColor = POINT_COLOR;
+        // Check if point belongs to a polygon
+        let containingPolygon = state.polygons.find(polygon => 
+            polygon.points && polygon.points.some(p => p.id === point.id)
+        );
+        
+        // Also check merged polygons
+        if (!containingPolygon) {
+            for (const polygon of state.polygons) {
+                if (polygon.mergedPolygons) {
+                    const mergedPolygon = polygon.mergedPolygons.find(mp => 
+                        mp.points && mp.points.some(p => p.id === point.id)
+                    );
+                    if (mergedPolygon) {
+                        containingPolygon = mergedPolygon;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if (containingPolygon) {
+            pointColor = containingPolygon.color || DEFAULT_POLYGON_COLOR;
+        }
+        
+        ctx.fillStyle = pointColor;
         ctx.beginPath();
         ctx.arc(transformed.x, transformed.y, 5 * scaleX, 0, Math.PI * 2);
         ctx.fill();
@@ -2144,6 +2361,9 @@ function handleMergePolygon(lastPolygonId) {
     if (!previousPolygon.mergedPolygons) {
         previousPolygon.mergedPolygons = [];
     }
+    
+    // Merge polygon should adopt the color of the parent polygon
+    lastPolygon.color = previousPolygon.color || DEFAULT_POLYGON_COLOR;
     previousPolygon.mergedPolygons.push(lastPolygon);
     
     // Merge subtracts if any (these are holes in polygons)
@@ -2160,6 +2380,34 @@ function handleMergePolygon(lastPolygonId) {
     showToast(`Polygon merged. New area: ${previousPolygon.areaInSquareMeters.toFixed(2)} m²`);
     updateUI();
     renderCanvas();
+}
+
+function attachPolygonColorListeners() {
+    const colorPickers = elements.polygonsList.querySelectorAll('.polygon-color-picker');
+    
+    colorPickers.forEach(picker => {
+        picker.addEventListener('input', function(e) {
+            e.stopPropagation();
+            const polygonId = this.getAttribute('data-polygon-id');
+            const polygon = state.polygons.find(p => p.id === polygonId);
+            
+            if (polygon) {
+                polygon.color = this.value;
+                renderCanvas();
+            }
+        });
+        
+        picker.addEventListener('change', function(e) {
+            e.stopPropagation();
+            const polygonId = this.getAttribute('data-polygon-id');
+            const polygon = state.polygons.find(p => p.id === polygonId);
+            
+            if (polygon) {
+                polygon.color = this.value;
+                renderCanvas();
+            }
+        });
+    });
 }
 
 // ==================== Tool Selection ====================
@@ -2225,10 +2473,18 @@ function updateUI() {
             const displayName = polygon.name || `Polygon ${index + 1}`;
             const isLast = index === state.polygons.length - 1;
             const canMerge = state.polygons.length >= 2 && isLast;
+            const polygonColor = polygon.color || DEFAULT_POLYGON_COLOR;
             return `
             <div class="polygon-item" data-polygon-id="${polygon.id}">
                 <div class="polygon-item-header">
                     <div class="polygon-name-editable" data-polygon-id="${polygon.id}">
+                        <input 
+                            type="color" 
+                            class="polygon-color-picker" 
+                            value="${polygonColor}"
+                            data-polygon-id="${polygon.id}"
+                            title="Select polygon color"
+                        >
                         <span class="polygon-name-text">${displayName}</span>
                         <input type="text" class="polygon-name-input hidden" value="${displayName}" data-polygon-id="${polygon.id}">
                     </div>
@@ -2249,6 +2505,9 @@ function updateUI() {
         
         // Attach event listeners for merge buttons
         attachPolygonMergeListeners();
+        
+        // Attach event listeners for color pickers
+        attachPolygonColorListeners();
     } else {
         elements.polygonsList.innerHTML = '<p class="info-text">No polygons detected</p>';
     }
