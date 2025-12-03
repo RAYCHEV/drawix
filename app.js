@@ -55,6 +55,7 @@ const state = {
     pendingCalibrationLine: null,
     showLengthLabels: true, // Toggle for showing/hiding line length labels
     angleSnapEnabled: true, // Toggle for 90-degree angle snapping
+    pointSnapEnabled: true, // Toggle for point snapping
     isSelectingScreenshot: false, // Screenshot selection mode
     screenshotSelectionStart: null, // Start point of screenshot selection
     screenshotSelectionEnd: null // End point of screenshot selection
@@ -99,6 +100,7 @@ const elements = {
     clearBtn: document.getElementById('clearBtn'),
     toggleLengthLabelsBtn: document.getElementById('toggleLengthLabelsBtn'),
     toggleAngleSnapBtn: document.getElementById('toggleAngleSnapBtn'),
+    togglePointSnapBtn: document.getElementById('togglePointSnapBtn'),
     
     // Modal
     calibrationModal: document.getElementById('calibrationModal'),
@@ -248,6 +250,11 @@ function getCanvasPoint(clientX, clientY) {
 }
 
 function findNearestPoint(point) {
+    // Return null if point snapping is disabled
+    if (!state.pointSnapEnabled) {
+        return null;
+    }
+    
     let nearest = null;
     
     // Get image position to convert points to canvas coordinates
@@ -1176,6 +1183,16 @@ function handleKeyDown(e) {
             showToast('Drawing cancelled');
         }
     }
+    
+    // S key toggles point snapping
+    if (e.key === 's' || e.key === 'S') {
+        // Don't toggle if user is typing in an input field
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+            return;
+        }
+        e.preventDefault();
+        handleTogglePointSnap();
+    }
 }
 
 function handleMouseMove(e) {
@@ -1582,6 +1599,14 @@ function handleToggleAngleSnap() {
     updateUI();
     renderCanvas();
     showToast(state.angleSnapEnabled ? '90° angle snap enabled' : '90° angle snap disabled');
+}
+
+function handleTogglePointSnap() {
+    state.pointSnapEnabled = !state.pointSnapEnabled;
+    state.nearestSnapPoint = null; // Clear current snap point
+    updateUI();
+    renderCanvas();
+    showToast(state.pointSnapEnabled ? 'Point snap enabled' : 'Point snap disabled');
 }
 
 // ==================== Screenshot Functions ====================
@@ -2583,6 +2608,9 @@ function updateUI() {
     // Update toggle button states
     elements.toggleLengthLabelsBtn.classList.toggle('active', state.showLengthLabels);
     elements.toggleAngleSnapBtn.classList.toggle('active', state.angleSnapEnabled);
+    if (elements.togglePointSnapBtn) {
+        elements.togglePointSnapBtn.classList.toggle('active', state.pointSnapEnabled);
+    }
     
     // Keep zoom controls visible - zoom is now allowed even after drawing
     elements.zoomControls.classList.remove('hidden');
@@ -2719,6 +2747,9 @@ function initEventListeners() {
     elements.clearBtn.addEventListener('click', handleClearAll);
     elements.toggleLengthLabelsBtn.addEventListener('click', handleToggleLengthLabels);
     elements.toggleAngleSnapBtn.addEventListener('click', handleToggleAngleSnap);
+    if (elements.togglePointSnapBtn) {
+        elements.togglePointSnapBtn.addEventListener('click', handleTogglePointSnap);
+    }
     
     // Calibration modal
     elements.calibrationForm.addEventListener('submit', handleCalibrationSubmit);
