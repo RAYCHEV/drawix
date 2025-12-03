@@ -23,6 +23,8 @@ const LINE_COLOR = "#2563eb";
 const PIPE_COLOR = "#16a34a";
 const RECTANGLE_COLOR = "#7c3aed";
 const SUBTRACT_COLOR = "#dc2626";
+const DEFAULT_CALIBRATION_LINE_COLOR = "#f59e0b"; // Orange color to distinguish calibration line
+let CALIBRATION_LINE_COLOR = DEFAULT_CALIBRATION_LINE_COLOR; // Can be changed via color picker
 const POINT_COLOR = "#2563eb";
 const POLYGON_FILL_COLOR = "rgba(37, 99, 235, 0.25)";
 const SUBTRACT_FILL_COLOR = "rgba(220, 38, 38, 0.25)";
@@ -82,6 +84,7 @@ const elements = {
     toolPipe: document.getElementById('toolPipe'),
     toolSubtract: document.getElementById('toolSubtract'),
     calibrationInfo: document.getElementById('calibrationInfo'),
+    calibrationColorInput: document.getElementById('calibrationColorInput'),
     totalArea: document.getElementById('totalArea'),
     polygonsList: document.getElementById('polygonsList'),
     pipesList: document.getElementById('pipesList'),
@@ -442,6 +445,7 @@ function renderCanvas() {
     state.lines.forEach(line => {
         const isPipe = line.isPipe === true;
         const isSubtract = line.isSubtract === true;
+        const isCalibration = line.isCalibration === true;
         
         // Check if this line is part of a subtract polygon (don't show label for subtract lines)
         const isPartOfSubtractPolygon = state.polygons.some(polygon => 
@@ -450,7 +454,7 @@ function renderCanvas() {
             )
         );
         
-        ctx.strokeStyle = isPipe ? PIPE_COLOR : (isSubtract ? SUBTRACT_COLOR : LINE_COLOR);
+        ctx.strokeStyle = isCalibration ? CALIBRATION_LINE_COLOR : (isPipe ? PIPE_COLOR : (isSubtract ? SUBTRACT_COLOR : LINE_COLOR));
         ctx.lineWidth = LINE_WIDTH / state.zoom;  // Fixed screen width
         ctx.lineCap = 'round';
         ctx.beginPath();
@@ -478,7 +482,7 @@ function renderCanvas() {
             const bgWidth = metrics.width + padding * 2;
             const bgHeight = 24 + padding * 2;
             
-            ctx.fillStyle = isPipe ? 'rgba(22, 163, 74, 0.9)' : (isSubtract ? 'rgba(220, 38, 38, 0.9)' : 'rgba(37, 99, 235, 0.9)');
+            ctx.fillStyle = isCalibration ? hexToRgba(CALIBRATION_LINE_COLOR, 0.9) : (isPipe ? 'rgba(22, 163, 74, 0.9)' : (isSubtract ? 'rgba(220, 38, 38, 0.9)' : 'rgba(37, 99, 235, 0.9)'));
             ctx.beginPath();
             ctx.roundRect(bgX, bgY, bgWidth, bgHeight, 6);
             ctx.fill();
@@ -1616,6 +1620,7 @@ function renderFullImageForScreenshot(ctx, imageWidth, imageHeight) {
     state.lines.forEach(line => {
         const isPipe = line.isPipe === true;
         const isSubtract = line.isSubtract === true;
+        const isCalibration = line.isCalibration === true;
         
         // Check if this line is part of a subtract polygon
         const isPartOfSubtractPolygon = state.polygons.some(polygon => 
@@ -1624,7 +1629,7 @@ function renderFullImageForScreenshot(ctx, imageWidth, imageHeight) {
             )
         );
         
-        ctx.strokeStyle = isPipe ? PIPE_COLOR : (isSubtract ? SUBTRACT_COLOR : LINE_COLOR);
+        ctx.strokeStyle = isCalibration ? CALIBRATION_LINE_COLOR : (isPipe ? PIPE_COLOR : (isSubtract ? SUBTRACT_COLOR : LINE_COLOR));
         ctx.lineWidth = LINE_WIDTH * scaleX;
         ctx.lineCap = 'round';
         ctx.beginPath();
@@ -1651,7 +1656,7 @@ function renderFullImageForScreenshot(ctx, imageWidth, imageHeight) {
             const bgWidth = metrics.width + padding * 2;
             const bgHeight = 24 + padding * 2;
             
-            ctx.fillStyle = isPipe ? 'rgba(22, 163, 74, 0.9)' : (isSubtract ? 'rgba(220, 38, 38, 0.9)' : 'rgba(37, 99, 235, 0.9)');
+            ctx.fillStyle = isCalibration ? hexToRgba(CALIBRATION_LINE_COLOR, 0.9) : (isPipe ? 'rgba(22, 163, 74, 0.9)' : (isSubtract ? 'rgba(220, 38, 38, 0.9)' : 'rgba(37, 99, 235, 0.9)'));
             ctx.beginPath();
             ctx.roundRect(bgX, bgY, bgWidth, bgHeight, 6);
             ctx.fill();
@@ -2018,6 +2023,7 @@ function handleCalibrationSubmit(e) {
     };
     
     line.lengthInMeters = lengthInMeters;
+    line.isCalibration = true; // Mark this line as the calibration line
     state.lines.push(line);
     
     closeCalibrationModal();
@@ -2422,6 +2428,12 @@ function initEventListeners() {
     elements.calibrationForm.addEventListener('submit', handleCalibrationSubmit);
     elements.cancelCalibrationBtn.addEventListener('click', closeCalibrationModal);
     
+    // Calibration color picker
+    if (elements.calibrationColorInput) {
+        elements.calibrationColorInput.addEventListener('input', handleCalibrationColorChange);
+        elements.calibrationColorInput.addEventListener('change', handleCalibrationColorChange);
+    }
+    
     // Collapsible sections
     elements.polygonsHeader.addEventListener('click', () => {
         toggleCollapsible(elements.polygonsHeader, elements.polygonsList);
@@ -2487,9 +2499,45 @@ function initEventListeners() {
     window.addEventListener('resize', resizeCanvas);
 }
 
+// ==================== Calibration Color Management ====================
+function hexToRgba(hex, alpha = 1) {
+    // Remove # if present
+    hex = hex.replace('#', '');
+    // Parse hex to RGB
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function loadCalibrationColor() {
+    const savedColor = localStorage.getItem('calibrationLineColor');
+    if (savedColor) {
+        CALIBRATION_LINE_COLOR = savedColor;
+    }
+    if (elements.calibrationColorInput) {
+        elements.calibrationColorInput.value = CALIBRATION_LINE_COLOR;
+    }
+}
+
+function saveCalibrationColor(color) {
+    localStorage.setItem('calibrationLineColor', color);
+    CALIBRATION_LINE_COLOR = color;
+    // Update all existing calibration lines
+    renderCanvas();
+}
+
+function handleCalibrationColorChange(e) {
+    const newColor = e.target.value;
+    saveCalibrationColor(newColor);
+}
+
 // ==================== Initialization ====================
 function init() {
     console.log('Initializing application...');
+    
+    // Load calibration color from localStorage
+    loadCalibrationColor();
     
     // Validate critical elements exist
     if (!elements.canvas) {
