@@ -52,6 +52,7 @@ const state = {
     isSelecting: false, // Flag for selection rectangle mode
     selectionStart: null, // Start point for selection rectangle
     selectionEnd: null, // End point for selection rectangle
+    justFinishedSelection: false, // Flag to prevent click event from clearing selection after drag
     hoveredPoint: null,
     isPanning: false,
     panStart: { x: 0, y: 0 },
@@ -175,6 +176,37 @@ function isPointInPolygon(point, polygonPoints) {
         if (intersect) inside = !inside;
     }
     return inside;
+}
+
+// Check if a line segment intersects with a rectangle
+function lineIntersectsRect(x1, y1, x2, y2, rectX1, rectY1, rectX2, rectY2) {
+    // Check if line segment intersects any of the rectangle edges
+    // Rectangle edges: top, bottom, left, right
+    const edges = [
+        { x1: rectX1, y1: rectY1, x2: rectX2, y2: rectY1 }, // top
+        { x1: rectX1, y1: rectY2, x2: rectX2, y2: rectY2 }, // bottom
+        { x1: rectX1, y1: rectY1, x2: rectX1, y2: rectY2 }, // left
+        { x1: rectX2, y1: rectY1, x2: rectX2, y2: rectY2 }  // right
+    ];
+    
+    for (const edge of edges) {
+        if (lineSegmentsIntersect(x1, y1, x2, y2, edge.x1, edge.y1, edge.x2, edge.y2)) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+// Check if two line segments intersect
+function lineSegmentsIntersect(x1, y1, x2, y2, x3, y3, x4, y4) {
+    const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+    if (Math.abs(denom) < 1e-10) return false; // Parallel lines
+    
+    const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+    const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
+    
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1;
 }
 
 // Check if a polygon overlaps with another polygon (simplified - checks if center is inside)
@@ -1098,6 +1130,17 @@ function handleCanvasClick(e) {
         return;
     }
     
+    // Ignore clicks when actively dragging selection rectangle
+    if (state.isSelecting) {
+        return;
+    }
+    
+    // Ignore clicks immediately after finishing drag selection
+    if (state.justFinishedSelection) {
+        state.justFinishedSelection = false; // Reset flag
+        return;
+    }
+    
     // Handle select tool (works even without image)
     if (state.currentTool === 'select') {
         handleSelectToolClick(e);
@@ -1335,14 +1378,15 @@ function handleMouseDown(e) {
         // Only start selection rectangle if not clicking on an element
         // Selection of elements is handled in handleCanvasClick (which fires after mousedown)
         if (!clickedPoint && !clickedLine) {
+            e.preventDefault(); // Prevent default behavior and click event
             state.isSelecting = true;
             state.selectionStart = point;
             state.selectionEnd = point;
             renderCanvas();
+            return;
         }
+        // If clicking on an element, let handleCanvasClick handle the selection
         // Don't return here - let handleCanvasClick handle element selection
-        // The click event will fire after mousedown and handle the selection
-        return;
     }
     
     // Handle screenshot selection mode
@@ -1551,18 +1595,20 @@ function handleMouseUp(e) {
     
     // Handle select tool selection rectangle end
     if (state.isSelecting && state.selectionStart && state.selectionEnd && e.button === 0) {
-        const imagePos = getImagePosition();
-        if (imagePos) {
-            const startX = Math.min(state.selectionStart.x, state.selectionEnd.x);
-            const startY = Math.min(state.selectionStart.y, state.selectionEnd.y);
-            const endX = Math.max(state.selectionStart.x, state.selectionEnd.x);
-            const endY = Math.max(state.selectionStart.y, state.selectionEnd.y);
-            
+        e.preventDefault(); // Prevent click event from firing
+        const startX = Math.min(state.selectionStart.x, state.selectionEnd.x);
+        const startY = Math.min(state.selectionStart.y, state.selectionEnd.y);
+        const endX = Math.max(state.selectionStart.x, state.selectionEnd.x);
+        const endY = Math.max(state.selectionStart.y, state.selectionEnd.y);
+        
+        // Only process if selection rectangle has meaningful size (not just a click)
+        const selectionWidth = endX - startX;
+        const selectionHeight = endY - startY;
+        if (selectionWidth > 0.1 || selectionHeight > 0.1) {
             // Select points and lines within rectangle
+            // Note: Both selection coordinates and point coordinates are in image-relative space
             state.points.forEach(point => {
-                const px = point.x + imagePos.x;
-                const py = point.y + imagePos.y;
-                if (px >= startX && px <= endX && py >= startY && py <= endY) {
+                if (point.x >= startX && point.x <= endX && point.y >= startY && point.y <= endY) {
                     if (!state.selectedPoints.includes(point.id)) {
                         state.selectedPoints.push(point.id);
                     }
@@ -1571,22 +1617,27 @@ function handleMouseUp(e) {
             
             state.lines.forEach(line => {
                 if (!line.startPoint || !line.endPoint) return;
-                const startX_line = line.startPoint.x + imagePos.x;
-                const startY_line = line.startPoint.y + imagePos.y;
-                const endX_line = line.endPoint.x + imagePos.x;
-                const endY_line = line.endPoint.y + imagePos.y;
+                const startX_line = line.startPoint.x;
+                const startY_line = line.startPoint.y;
+                const endX_line = line.endPoint.x;
+                const endY_line = line.endPoint.y;
                 
                 // Check if line is within or intersects selection rectangle
                 const lineInRect = 
                     (startX_line >= startX && startX_line <= endX && startY_line >= startY && startY_line <= endY) ||
                     (endX_line >= startX && endX_line <= endX && endY_line >= startY && endY_line <= endY) ||
                     (startX_line < startX && endX_line > endX && startY_line >= startY && startY_line <= endY) ||
-                    (startY_line < startY && endY_line > endY && startX_line >= startX && startX_line <= endX);
+                    (startY_line < startY && endY_line > endY && startX_line >= startX && startX_line <= endX) ||
+                    // Check if line intersects rectangle edges
+                    lineIntersectsRect(startX_line, startY_line, endX_line, endY_line, startX, startY, endX, endY);
                 
                 if (lineInRect && !state.selectedLines.includes(line.id)) {
                     state.selectedLines.push(line.id);
                 }
             });
+            
+            // Set flag to prevent click event from clearing selection after drag
+            state.justFinishedSelection = true;
         }
         
         state.isSelecting = false;
