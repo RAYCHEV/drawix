@@ -123,7 +123,8 @@ const elements = {
     // Collapsible headers
     polygonsHeader: document.getElementById('polygonsHeader'),
     pointsHeader: document.getElementById('pointsHeader'),
-    instructionsHeader: document.getElementById('instructionsHeader')
+    instructionsHeader: document.getElementById('instructionsHeader'),
+    shortcutsHeader: document.getElementById('shortcutsHeader')
 };
 
 // ==================== Utility Functions ====================
@@ -1420,11 +1421,18 @@ function handleMouseDown(e) {
     }
 }
 
+// Helper function to check if key matches (supports both Latin and Cyrillic)
+function isKeyMatch(key, latinLower, latinUpper, cyrillicLower, cyrillicUpper) {
+    return key === latinLower || key === latinUpper || key === cyrillicLower || key === cyrillicUpper;
+}
+
 function handleKeyDown(e) {
+    // Don't process tool shortcuts if user is typing in an input field
+    const isTyping = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA';
+    
     // Delete or Backspace to delete selected elements
     if ((e.key === 'Delete' || e.key === 'Backspace') && (state.selectedPoints.length > 0 || state.selectedLines.length > 0)) {
-        // Don't delete if user is typing in an input field
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        if (isTyping) {
             return;
         }
         e.preventDefault();
@@ -1434,8 +1442,7 @@ function handleKeyDown(e) {
     
     // Ctrl+Z or Cmd+Z for undo
     if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
-        // Don't undo if user is typing in an input field
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        if (isTyping) {
             return;
         }
         e.preventDefault();
@@ -1463,26 +1470,74 @@ function handleKeyDown(e) {
         }
     }
     
-    // S key toggles point snapping
-    if (e.key === 's' || e.key === 'S') {
-        // Don't toggle if user is typing in an input field
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+    // S key toggles point snapping (S/С)
+    if (isKeyMatch(e.key, 's', 'S', 'с', 'С')) {
+        if (isTyping) {
             return;
         }
         e.preventDefault();
         handleTogglePointSnap();
+        return;
     }
     
-    // A key activates select tool
-    if (e.key === 'a' || e.key === 'A') {
-        // Don't activate if user is typing in an input field
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+    // A key activates select tool (A/А)
+    if (isKeyMatch(e.key, 'a', 'A', 'а', 'А')) {
+        if (isTyping) {
             return;
         }
         e.preventDefault();
         if (elements.toolSelect) {
             elements.toolSelect.click();
         }
+        return;
+    }
+    
+    // L key activates line tool (L/Л)
+    if (isKeyMatch(e.key, 'l', 'L', 'л', 'Л')) {
+        if (isTyping) {
+            return;
+        }
+        e.preventDefault();
+        if (elements.toolLine) {
+            elements.toolLine.click();
+        }
+        return;
+    }
+    
+    // P key activates pipe tool (P/П)
+    if (isKeyMatch(e.key, 'p', 'P', 'п', 'П')) {
+        if (isTyping) {
+            return;
+        }
+        e.preventDefault();
+        if (elements.toolPipe) {
+            elements.toolPipe.click();
+        }
+        return;
+    }
+    
+    // R key activates rectangle tool (R/Р)
+    if (isKeyMatch(e.key, 'r', 'R', 'р', 'Р')) {
+        if (isTyping) {
+            return;
+        }
+        e.preventDefault();
+        if (elements.toolRectangle) {
+            elements.toolRectangle.click();
+        }
+        return;
+    }
+    
+    // X key activates subtract tool (X/ѝ/Ь)
+    if (isKeyMatch(e.key, 'x', 'X', 'ѝ', 'Ь')) {
+        if (isTyping) {
+            return;
+        }
+        e.preventDefault();
+        if (elements.toolSubtract) {
+            elements.toolSubtract.click();
+        }
+        return;
     }
 }
 
@@ -3451,6 +3506,12 @@ function initEventListeners() {
         toggleCollapsible(elements.instructionsHeader, document.getElementById('instructionsContent'));
     });
     
+    if (elements.shortcutsHeader) {
+        elements.shortcutsHeader.addEventListener('click', () => {
+            toggleCollapsible(elements.shortcutsHeader, document.getElementById('shortcutsContent'));
+        });
+    }
+    
     // Screenshot button
     elements.screenshotBtn.addEventListener('click', handleTakeScreenshot);
     
@@ -3583,6 +3644,9 @@ function init() {
     }
     if (elements.instructionsHeader) {
         elements.instructionsHeader.setAttribute('aria-expanded', 'false');
+    }
+    if (elements.shortcutsHeader) {
+        elements.shortcutsHeader.setAttribute('aria-expanded', 'false');
     }
     
     // Initialize event listeners

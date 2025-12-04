@@ -101,21 +101,21 @@
             <div class="panel-section">
                 <h2 class="panel-section-title">Tools</h2>
                 <div class="tools-grid">
-                    <button class="tool-btn active" id="toolLine" data-tool="line" title="Line Tool">
+                    <button class="tool-btn active" id="toolLine" data-tool="line" title="Line Tool (L)">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                        <span>Line</span>
+                        <span>Line (L)</span>
                     </button>
-                    <button class="tool-btn" id="toolRectangle" data-tool="rectangle" title="Rectangle Tool">
+                    <button class="tool-btn" id="toolRectangle" data-tool="rectangle" title="Rectangle Tool (R)">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
-                        <span>Rectangle</span>
+                        <span>Rectangle (R)</span>
                     </button>
-                    <button class="tool-btn" id="toolPipe" data-tool="pipe" title="Pipe Tool">
+                    <button class="tool-btn" id="toolPipe" data-tool="pipe" title="Pipe Tool (P)">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-                        <span>Pipe</span>
+                        <span>Pipe (P)</span>
                     </button>
-                    <button class="tool-btn" id="toolSubtract" data-tool="subtract" title="Subtract Tool - Draw polygon to subtract from existing polygon">
+                    <button class="tool-btn" id="toolSubtract" data-tool="subtract" title="Subtract Tool - Draw polygon to subtract from existing polygon (X)">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
-                        <span>Subtract</span>
+                        <span>Subtract (X)</span>
                     </button>
                     <button class="tool-btn" id="toolSelect" data-tool="select" title="Select Tool - Select and delete elements (A)">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>
@@ -235,6 +235,54 @@
                         <li>Click on a polygon name in the menu to rename it</li>
                         <li><strong>Important:</strong> Please do not overlap polygons because it will take the value twice, same for extraction</li>
                     </ol>
+                </div>
+            </div>
+            
+            <!-- Keyboard Shortcuts -->
+            <div class="panel-section collapsible">
+                <button class="collapsible-header" id="shortcutsHeader">
+                    <h2 class="panel-section-title">Keyboard Shortcuts</h2>
+                    <svg class="chevron" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="collapsible-content collapsed" id="shortcutsContent">
+                    <div class="shortcuts-list">
+                        <div class="shortcut-item">
+                            <span class="shortcut-key">L</span>
+                            <span class="shortcut-description">Activate Line tool</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-key">R</span>
+                            <span class="shortcut-description">Activate Rectangle tool</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-key">P</span>
+                            <span class="shortcut-description">Activate Pipe tool</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-key">X</span>
+                            <span class="shortcut-description">Activate Subtract tool</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-key">A</span>
+                            <span class="shortcut-description">Activate Select tool</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-key">S</span>
+                            <span class="shortcut-description">Toggle Point Snap</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-key">Ctrl+Z / Cmd+Z</span>
+                            <span class="shortcut-description">Undo last action</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-key">Delete / Backspace</span>
+                            <span class="shortcut-description">Delete selected elements</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-key">ESC</span>
+                            <span class="shortcut-description">Cancel drawing or clear selection</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </aside>
