@@ -42,11 +42,16 @@ const state = {
     lines: [],
     polygons: [],
     calibration: null,
-    currentTool: 'line', // 'line', 'rectangle', 'pipe', 'subtract'
+    currentTool: 'line', // 'line', 'rectangle', 'pipe', 'subtract', 'select'
     currentLineStart: null,
     currentRectangleStart: null,
     isDrawingRectangle: false,
     justFinishedRectangle: false, // Flag to prevent starting new drawing immediately after rectangle
+    selectedPoints: [], // Array of selected point IDs
+    selectedLines: [], // Array of selected line IDs
+    isSelecting: false, // Flag for selection rectangle mode
+    selectionStart: null, // Start point for selection rectangle
+    selectionEnd: null, // End point for selection rectangle
     hoveredPoint: null,
     isPanning: false,
     panStart: { x: 0, y: 0 },
@@ -86,6 +91,7 @@ const elements = {
     toolRectangle: document.getElementById('toolRectangle'),
     toolPipe: document.getElementById('toolPipe'),
     toolSubtract: document.getElementById('toolSubtract'),
+    toolSelect: document.getElementById('toolSelect'),
     calibrationInfo: document.getElementById('calibrationInfo'),
     calibrationColorInput: document.getElementById('calibrationColorInput'),
     totalArea: document.getElementById('totalArea'),
@@ -250,19 +256,22 @@ function getCanvasPoint(clientX, clientY) {
     }
 }
 
-function findNearestPoint(point) {
-    // Return null if point snapping is disabled
-    if (!state.pointSnapEnabled) {
+function findNearestPoint(point, forceCheck = false) {
+    // Return null if point snapping is disabled (unless forceCheck is true)
+    if (!state.pointSnapEnabled && !forceCheck) {
         return null;
     }
     
     let nearest = null;
     
+    // Use larger radius for selection (forceCheck) to make it easier to click
+    const selectionRadius = forceCheck ? 20 : SNAP_RADIUS;
+    
     // Get image position to convert points to canvas coordinates
     const imagePos = getImagePosition();
     if (!imagePos) {
         // Fallback to old behavior if no image
-        let minDistance = SNAP_RADIUS;
+        let minDistance = selectionRadius;
         state.points.forEach(p => {
             const distance = calculateDistance(
                 { x: p.x * state.zoom, y: p.y * state.zoom },
@@ -281,8 +290,8 @@ function findNearestPoint(point) {
     const pointCanvasX = point.x + imagePos.x;
     const pointCanvasY = point.y + imagePos.y;
     
-    // SNAP_RADIUS is in screen pixels, convert to transformed space
-    const snapRadiusInTransformedSpace = SNAP_RADIUS / state.zoom;
+    // Selection radius is in screen pixels, convert to transformed space
+    const snapRadiusInTransformedSpace = selectionRadius / state.zoom;
     let minDistance = snapRadiusInTransformedSpace;
     
     state.points.forEach(p => {
@@ -510,6 +519,21 @@ function renderCanvas() {
             }
         }
         
+        const isSelected = state.selectedLines.includes(line.id);
+        
+        // Draw selection highlight for selected lines
+        if (isSelected) {
+            ctx.strokeStyle = '#ff0000'; // Red for selected
+            ctx.lineWidth = (LINE_WIDTH + 2) / state.zoom;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            const startPoint = toCanvasPoint(line.startPoint);
+            const endPoint = toCanvasPoint(line.endPoint);
+            ctx.moveTo(startPoint.x, startPoint.y);
+            ctx.lineTo(endPoint.x, endPoint.y);
+            ctx.stroke();
+        }
+        
         ctx.strokeStyle = lineColor;
         ctx.lineWidth = LINE_WIDTH / state.zoom;  // Fixed screen width
         ctx.lineCap = 'round';
@@ -682,6 +706,7 @@ function renderCanvas() {
         const canvasPoint = toCanvasPoint(point);
         const isHovered = state.nearestSnapPoint?.id === point.id;
         const isStart = state.currentLineStart?.id === point.id;
+        const isSelected = state.selectedPoints.includes(point.id);
         
         // Find if point belongs to a polygon (including merged polygons)
         let pointColor = POINT_COLOR;
@@ -711,7 +736,14 @@ function renderCanvas() {
             }
         }
         
-        if (isHovered) {
+        // Highlight selected points
+        if (isSelected) {
+            ctx.strokeStyle = '#ff0000'; // Red outline for selected
+            ctx.lineWidth = 3 / state.zoom;
+            ctx.beginPath();
+            ctx.arc(canvasPoint.x, canvasPoint.y, 8 / state.zoom, 0, Math.PI * 2);
+            ctx.stroke();
+        } else if (isHovered) {
             ctx.strokeStyle = pointColor;
             ctx.lineWidth = 2 / state.zoom;  // Fixed screen width
             ctx.beginPath();
@@ -724,6 +756,28 @@ function renderCanvas() {
         ctx.arc(canvasPoint.x, canvasPoint.y, 5 / state.zoom, 0, Math.PI * 2);  // Fixed screen size
         ctx.fill();
     });
+    
+    // Draw selection rectangle for select tool
+    if (state.isSelecting && state.selectionStart && state.selectionEnd) {
+        const startCanvas = toCanvasPoint(state.selectionStart);
+        const endCanvas = toCanvasPoint(state.selectionEnd);
+        
+        const x = Math.min(startCanvas.x, endCanvas.x);
+        const y = Math.min(startCanvas.y, endCanvas.y);
+        const width = Math.abs(endCanvas.x - startCanvas.x);
+        const height = Math.abs(endCanvas.y - startCanvas.y);
+        
+        // Draw selection rectangle with dashed border
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 2 / state.zoom;
+        ctx.setLineDash([8 / state.zoom, 4 / state.zoom]);
+        ctx.strokeRect(x, y, width, height);
+        ctx.setLineDash([]);
+        
+        // Draw semi-transparent fill
+        ctx.fillStyle = 'rgba(37, 99, 235, 0.1)';
+        ctx.fillRect(x, y, width, height);
+    }
     
     // Draw screenshot selection rectangle
     if (state.isSelectingScreenshot && state.screenshotSelectionStart && state.screenshotSelectionEnd) {
@@ -1037,12 +1091,21 @@ function loadImage(dataUrl) {
 }
 
 function handleCanvasClick(e) {
-    if (e.shiftKey || !state.image) return;
+    if (e.shiftKey) return;
     
     // Ignore clicks when in screenshot selection mode
     if (state.isSelectingScreenshot) {
         return;
     }
+    
+    // Handle select tool (works even without image)
+    if (state.currentTool === 'select') {
+        handleSelectToolClick(e);
+        return;
+    }
+    
+    // Other tools require an image
+    if (!state.image) return;
     
     // Rectangle tool uses drag (mousedown/mouseup), not click
     if (state.currentTool === 'rectangle') {
@@ -1151,7 +1214,137 @@ function handleCanvasClick(e) {
     renderCanvas();
 }
 
+function handleSelectToolClick(e) {
+    const point = getCanvasPoint(e.clientX, e.clientY);
+    
+    // Check if clicking on a point (force check even if point snapping is disabled)
+    const clickedPoint = findNearestPoint(point, true);
+    if (clickedPoint) {
+        // Toggle point selection
+        const pointIndex = state.selectedPoints.indexOf(clickedPoint.id);
+        if (pointIndex === -1) {
+            state.selectedPoints.push(clickedPoint.id);
+        } else {
+            state.selectedPoints.splice(pointIndex, 1);
+        }
+        updateUI();
+        renderCanvas();
+        return;
+    }
+    
+    // Check if clicking on a line
+    const clickedLine = findNearestLine(point);
+    if (clickedLine) {
+        // Toggle line selection
+        const lineIndex = state.selectedLines.indexOf(clickedLine.id);
+        if (lineIndex === -1) {
+            state.selectedLines.push(clickedLine.id);
+        } else {
+            state.selectedLines.splice(lineIndex, 1);
+        }
+        updateUI();
+        renderCanvas();
+        return;
+    }
+    
+    // If clicking on empty space, clear selection (unless Ctrl/Cmd is held)
+    if (!e.ctrlKey && !e.metaKey) {
+        state.selectedPoints = [];
+        state.selectedLines = [];
+        updateUI();
+        renderCanvas();
+    }
+}
+
+function findNearestLine(point) {
+    const imagePos = getImagePosition();
+    const snapRadius = 15 / state.zoom; // Selection radius (increased for better selection)
+    
+    let nearestLine = null;
+    let minDistance = snapRadius;
+    
+    state.lines.forEach(line => {
+        if (!line.startPoint || !line.endPoint) return;
+        
+        let startX, startY, endX, endY, pointCanvasX, pointCanvasY;
+        
+        if (imagePos) {
+            // With image: convert to canvas coordinates
+            startX = line.startPoint.x + imagePos.x;
+            startY = line.startPoint.y + imagePos.y;
+            endX = line.endPoint.x + imagePos.x;
+            endY = line.endPoint.y + imagePos.y;
+            pointCanvasX = point.x + imagePos.x;
+            pointCanvasY = point.y + imagePos.y;
+        } else {
+            // Without image: use transformed coordinates
+            startX = line.startPoint.x * state.zoom;
+            startY = line.startPoint.y * state.zoom;
+            endX = line.endPoint.x * state.zoom;
+            endY = line.endPoint.y * state.zoom;
+            pointCanvasX = point.x * state.zoom;
+            pointCanvasY = point.y * state.zoom;
+        }
+        
+        // Calculate distance from point to line segment
+        const A = pointCanvasX - startX;
+        const B = pointCanvasY - startY;
+        const C = endX - startX;
+        const D = endY - startY;
+        
+        const dot = A * C + B * D;
+        const lenSq = C * C + D * D;
+        let param = -1;
+        
+        if (lenSq !== 0) {
+            param = dot / lenSq;
+        }
+        
+        let xx, yy;
+        if (param < 0) {
+            xx = startX;
+            yy = startY;
+        } else if (param > 1) {
+            xx = endX;
+            yy = endY;
+        } else {
+            xx = startX + param * C;
+            yy = startY + param * D;
+        }
+        
+        const dx = pointCanvasX - xx;
+        const dy = pointCanvasY - yy;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < minDistance) {
+            minDistance = distance;
+            nearestLine = line;
+        }
+    });
+    
+    return nearestLine;
+}
+
 function handleMouseDown(e) {
+    // Handle select tool selection rectangle
+    if (state.currentTool === 'select' && e.button === 0 && !e.ctrlKey && !e.metaKey) {
+        const point = getCanvasPoint(e.clientX, e.clientY);
+        const clickedPoint = findNearestPoint(point, true); // Force check for selection
+        const clickedLine = findNearestLine(point);
+        
+        // Only start selection rectangle if not clicking on an element
+        // Selection of elements is handled in handleCanvasClick (which fires after mousedown)
+        if (!clickedPoint && !clickedLine) {
+            state.isSelecting = true;
+            state.selectionStart = point;
+            state.selectionEnd = point;
+            renderCanvas();
+        }
+        // Don't return here - let handleCanvasClick handle element selection
+        // The click event will fire after mousedown and handle the selection
+        return;
+    }
+    
     // Handle screenshot selection mode
     if (state.isSelectingScreenshot && e.button === 0) {
         e.preventDefault();
@@ -1184,6 +1377,17 @@ function handleMouseDown(e) {
 }
 
 function handleKeyDown(e) {
+    // Delete or Backspace to delete selected elements
+    if ((e.key === 'Delete' || e.key === 'Backspace') && (state.selectedPoints.length > 0 || state.selectedLines.length > 0)) {
+        // Don't delete if user is typing in an input field
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+            return;
+        }
+        e.preventDefault();
+        handleDeleteSelected();
+        return;
+    }
+    
     // Ctrl+Z or Cmd+Z for undo
     if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
         // Don't undo if user is typing in an input field
@@ -1195,7 +1399,7 @@ function handleKeyDown(e) {
         return;
     }
     
-    // ESC key cancels any active drawing
+    // ESC key cancels any active drawing or clears selection
     if (e.key === 'Escape' || e.key === 'Esc') {
         if (state.currentLineStart || state.currentRectangleStart || state.isDrawingRectangle) {
             state.currentLineStart = null;
@@ -1205,6 +1409,13 @@ function handleKeyDown(e) {
             state.justFinishedRectangle = false;
             renderCanvas();
             showToast('Drawing cancelled');
+        } else if (state.selectedPoints.length > 0 || state.selectedLines.length > 0) {
+            state.selectedPoints = [];
+            state.selectedLines = [];
+            state.isSelecting = false;
+            state.selectionStart = null;
+            state.selectionEnd = null;
+            renderCanvas();
         }
     }
     
@@ -1217,6 +1428,18 @@ function handleKeyDown(e) {
         e.preventDefault();
         handleTogglePointSnap();
     }
+    
+    // A key activates select tool
+    if (e.key === 'a' || e.key === 'A') {
+        // Don't activate if user is typing in an input field
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+            return;
+        }
+        e.preventDefault();
+        if (elements.toolSelect) {
+            elements.toolSelect.click();
+        }
+    }
 }
 
 function handleMouseMove(e) {
@@ -1225,6 +1448,14 @@ function handleMouseMove(e) {
             x: e.clientX - state.panStart.x,
             y: e.clientY - state.panStart.y
         };
+        renderCanvas();
+        return;
+    }
+    
+    // Handle select tool selection rectangle
+    if (state.isSelecting && state.selectionStart) {
+        const point = getCanvasPoint(e.clientX, e.clientY);
+        state.selectionEnd = point;
         renderCanvas();
         return;
     }
@@ -1252,6 +1483,23 @@ function handleMouseMove(e) {
         state.nearestSnapPoint = null;
         state.hoveredPoint = null;
         elements.canvas.classList.remove('snap-cursor');
+        renderCanvas();
+        return;
+    }
+    
+    // For select tool, don't show line preview
+    if (state.currentTool === 'select' && !state.isSelecting) {
+        state.cursorPosition = null;
+        // Still show snap point for better UX
+        let nearest = findNearestPoint(point);
+        state.nearestSnapPoint = nearest;
+        state.hoveredPoint = nearest;
+        
+        if (nearest) {
+            elements.canvas.classList.add('snap-cursor');
+        } else {
+            elements.canvas.classList.remove('snap-cursor');
+        }
         renderCanvas();
         return;
     }
@@ -1300,6 +1548,54 @@ function handleMouseUp(e) {
     const wasDrawingRectangle = state.isDrawingRectangle;
     state.isPanning = false;
     elements.canvas.classList.remove('panning');
+    
+    // Handle select tool selection rectangle end
+    if (state.isSelecting && state.selectionStart && state.selectionEnd && e.button === 0) {
+        const imagePos = getImagePosition();
+        if (imagePos) {
+            const startX = Math.min(state.selectionStart.x, state.selectionEnd.x);
+            const startY = Math.min(state.selectionStart.y, state.selectionEnd.y);
+            const endX = Math.max(state.selectionStart.x, state.selectionEnd.x);
+            const endY = Math.max(state.selectionStart.y, state.selectionEnd.y);
+            
+            // Select points and lines within rectangle
+            state.points.forEach(point => {
+                const px = point.x + imagePos.x;
+                const py = point.y + imagePos.y;
+                if (px >= startX && px <= endX && py >= startY && py <= endY) {
+                    if (!state.selectedPoints.includes(point.id)) {
+                        state.selectedPoints.push(point.id);
+                    }
+                }
+            });
+            
+            state.lines.forEach(line => {
+                if (!line.startPoint || !line.endPoint) return;
+                const startX_line = line.startPoint.x + imagePos.x;
+                const startY_line = line.startPoint.y + imagePos.y;
+                const endX_line = line.endPoint.x + imagePos.x;
+                const endY_line = line.endPoint.y + imagePos.y;
+                
+                // Check if line is within or intersects selection rectangle
+                const lineInRect = 
+                    (startX_line >= startX && startX_line <= endX && startY_line >= startY && startY_line <= endY) ||
+                    (endX_line >= startX && endX_line <= endX && endY_line >= startY && endY_line <= endY) ||
+                    (startX_line < startX && endX_line > endX && startY_line >= startY && startY_line <= endY) ||
+                    (startY_line < startY && endY_line > endY && startX_line >= startX && startX_line <= endX);
+                
+                if (lineInRect && !state.selectedLines.includes(line.id)) {
+                    state.selectedLines.push(line.id);
+                }
+            });
+        }
+        
+        state.isSelecting = false;
+        state.selectionStart = null;
+        state.selectionEnd = null;
+        updateUI();
+        renderCanvas();
+        return;
+    }
     
     // Handle screenshot selection end
     if (state.isSelectingScreenshot && state.screenshotSelectionStart && state.screenshotSelectionEnd && e.button === 0) {
@@ -1704,6 +2000,28 @@ function handleUndo() {
                 });
             }
             break;
+            
+        case 'delete_elements':
+            // Restore deleted elements
+            if (lastAction.data.points) {
+                lastAction.data.points.forEach(point => {
+                    if (!state.points.find(p => p.id === point.id)) {
+                        state.points.push(point);
+                    }
+                });
+            }
+            
+            if (lastAction.data.lines) {
+                lastAction.data.lines.forEach(line => {
+                    if (!state.lines.find(l => l.id === line.id)) {
+                        state.lines.push(line);
+                    }
+                });
+            }
+            
+            // Re-check for polygons
+            checkForClosedPolygon();
+            break;
     }
     
     // Clear current drawing state
@@ -1720,6 +2038,127 @@ function handleUndo() {
 // Keep old function name for compatibility, but redirect to new function
 function handleUndoLastLine() {
     handleUndo();
+}
+
+function handleDeleteSelected() {
+    if (state.selectedPoints.length === 0 && state.selectedLines.length === 0) {
+        return;
+    }
+    
+    // Collect lines to delete (selected lines + lines connected to selected points)
+    const linesToDelete = new Set();
+    
+    // Add selected lines
+    state.selectedLines.forEach(lineId => {
+        linesToDelete.add(lineId);
+    });
+    
+    // Find lines connected to selected points
+    state.selectedPoints.forEach(pointId => {
+        state.lines.forEach(line => {
+            if ((line.startPoint && line.startPoint.id === pointId) ||
+                (line.endPoint && line.endPoint.id === pointId)) {
+                linesToDelete.add(line.id);
+            }
+        });
+    });
+    
+    // Record action for undo
+    const deletedLines = state.lines.filter(l => linesToDelete.has(l.id)).map(l => JSON.parse(JSON.stringify(l)));
+    const deletedPoints = state.points.filter(p => state.selectedPoints.includes(p.id)).map(p => JSON.parse(JSON.stringify(p)));
+    
+    if (deletedLines.length > 0 || deletedPoints.length > 0) {
+        state.actionHistory.push({
+            type: 'delete_elements',
+            data: {
+                lines: deletedLines,
+                points: deletedPoints
+            }
+        });
+    }
+    
+    // Remove lines
+    state.lines = state.lines.filter(line => !linesToDelete.has(line.id));
+    
+    // Remove points
+    state.points = state.points.filter(point => !state.selectedPoints.includes(point.id));
+    
+    // Remove polygons that reference deleted lines
+    state.polygons = state.polygons.filter(polygon => {
+        if (!polygon.lines) return true;
+        return polygon.lines.every(line => !linesToDelete.has(line.id));
+    });
+    
+    // Clear selection
+    state.selectedPoints = [];
+    state.selectedLines = [];
+    
+    // Clear drawing state
+    state.currentLineStart = null;
+    state.currentRectangleStart = null;
+    state.isDrawingRectangle = false;
+    state.cursorPosition = null;
+    
+    updateUI();
+    renderCanvas();
+    showToast(`Deleted ${deletedPoints.length} point(s) and ${deletedLines.length} line(s)`);
+}
+
+function handleContextMenu(e) {
+    // Only show context menu for select tool
+    if (state.currentTool !== 'select') {
+        e.preventDefault();
+        return;
+    }
+    
+    // Only show if there are selected elements
+    if (state.selectedPoints.length === 0 && state.selectedLines.length === 0) {
+        e.preventDefault();
+        return;
+    }
+    
+    e.preventDefault();
+    
+    // Create context menu
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.position = 'fixed';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+    menu.style.backgroundColor = 'white';
+    menu.style.border = '1px solid #e5e7eb';
+    menu.style.borderRadius = '0.375rem';
+    menu.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+    menu.style.padding = '0.5rem 0';
+    menu.style.zIndex = '10000';
+    menu.style.minWidth = '150px';
+    
+    const deleteItem = document.createElement('div');
+    deleteItem.className = 'context-menu-item';
+    deleteItem.style.padding = '0.5rem 1rem';
+    deleteItem.style.cursor = 'pointer';
+    deleteItem.style.fontSize = '0.875rem';
+    deleteItem.style.color = '#dc2626';
+    deleteItem.textContent = 'Delete';
+    deleteItem.addEventListener('click', () => {
+        handleDeleteSelected();
+        document.body.removeChild(menu);
+    });
+    
+    menu.appendChild(deleteItem);
+    document.body.appendChild(menu);
+    
+    // Remove menu when clicking elsewhere
+    const removeMenu = (event) => {
+        if (!menu.contains(event.target)) {
+            document.body.removeChild(menu);
+            document.removeEventListener('click', removeMenu);
+        }
+    };
+    
+    setTimeout(() => {
+        document.addEventListener('click', removeMenu);
+    }, 0);
 }
 
 function handleNewProject() {
@@ -2660,12 +3099,23 @@ function updateToolButtons() {
         elements.toolRectangle.classList.add('active');
     } else if (state.currentTool === 'pipe') {
         elements.toolPipe.classList.add('active');
+    } else if (state.currentTool === 'subtract') {
+        elements.toolSubtract.classList.add('active');
+    } else if (state.currentTool === 'select') {
+        if (elements.toolSelect) {
+            elements.toolSelect.classList.add('active');
+        }
     }
     
     // Disable Rectangle, Pipe, and Subtract tools before calibration
     elements.toolRectangle.disabled = !hasCalibration;
     elements.toolPipe.disabled = !hasCalibration;
     elements.toolSubtract.disabled = !hasCalibration;
+    
+    // Select tool is always available
+    if (elements.toolSelect) {
+        elements.toolSelect.disabled = false;
+    }
     
     // If current tool is disabled, switch to Line
     if (!hasCalibration && (state.currentTool === 'rectangle' || state.currentTool === 'pipe' || state.currentTool === 'subtract')) {
@@ -2674,10 +3124,6 @@ function updateToolButtons() {
         state.currentLineStart = null;
         state.currentRectangleStart = null;
         state.isDrawingRectangle = false;
-    }
-    
-    if (state.currentTool === 'subtract') {
-        elements.toolSubtract.classList.add('active');
     }
 }
 
@@ -2906,7 +3352,7 @@ function initEventListeners() {
         handleMouseUp(e);
     });
     elements.canvas.addEventListener('wheel', handleWheel);
-    elements.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    elements.canvas.addEventListener('contextmenu', handleContextMenu);
     
     // Keyboard events for ESC to cancel drawing
     document.addEventListener('keydown', handleKeyDown);
@@ -2994,9 +3440,23 @@ function initEventListeners() {
         state.currentRectangleStart = null;
         state.isDrawingRectangle = false;
         state.justFinishedRectangle = false;
+        state.selectedPoints = [];
+        state.selectedLines = [];
         updateToolButtons();
         renderCanvas();
     });
+    
+    if (elements.toolSelect) {
+        elements.toolSelect.addEventListener('click', () => {
+            state.currentTool = 'select';
+            state.currentLineStart = null;
+            state.currentRectangleStart = null;
+            state.isDrawingRectangle = false;
+            state.justFinishedRectangle = false;
+            updateToolButtons();
+            renderCanvas();
+        });
+    }
     
     // Window resize
     window.addEventListener('resize', resizeCanvas);
