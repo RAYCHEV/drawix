@@ -1678,33 +1678,22 @@ function handleMouseUp(e) {
     // Handle screenshot selection end
     if (state.isSelectingScreenshot && state.screenshotSelectionStart && state.screenshotSelectionEnd && e.button === 0) {
         e.preventDefault();
-        // Validate selection
-        const imagePos = getImagePosition();
-        if (imagePos) {
-            const startCanvas = {
-                x: state.screenshotSelectionStart.x + imagePos.x,
-                y: state.screenshotSelectionStart.y + imagePos.y
-            };
-            const endCanvas = {
-                x: state.screenshotSelectionEnd.x + imagePos.x,
-                y: state.screenshotSelectionEnd.y + imagePos.y
-            };
-            const selectionWidth = Math.abs(endCanvas.x - startCanvas.x);
-            const selectionHeight = Math.abs(endCanvas.y - startCanvas.y);
-            
-            if (selectionWidth >= 10 && selectionHeight >= 10) {
-                // Create screenshot from selection (don't reset selection mode here - it will be reset in createScreenshotFromSelection)
-                createScreenshotFromSelection();
-            } else {
-                showToast('Selection too small. Please select a larger area.');
-                // Reset selection mode if selection is too small
-                state.isSelectingScreenshot = false;
-                state.screenshotSelectionStart = null;
-                state.screenshotSelectionEnd = null;
-                state.currentLineStart = null; // Prevent auto-starting a line after screenshot
-                state.cursorPosition = null; // Clear cursor position
-                elements.canvas.style.cursor = 'default';
-            }
+        // Validate selection (points are in direct canvas coordinates)
+        const selectionWidth = Math.abs(state.screenshotSelectionEnd.x - state.screenshotSelectionStart.x);
+        const selectionHeight = Math.abs(state.screenshotSelectionEnd.y - state.screenshotSelectionStart.y);
+        
+        if (selectionWidth >= 10 && selectionHeight >= 10) {
+            // Create screenshot from selection (don't reset selection mode here - it will be reset in createScreenshotFromSelection)
+            createScreenshotFromSelection();
+        } else {
+            showToast('Selection too small. Please select a larger area.');
+            // Reset selection mode if selection is too small
+            state.isSelectingScreenshot = false;
+            state.screenshotSelectionStart = null;
+            state.screenshotSelectionEnd = null;
+            state.currentLineStart = null;
+            state.cursorPosition = null;
+            elements.canvas.style.cursor = 'default';
         }
         renderCanvas();
         return;
@@ -2627,11 +2616,6 @@ function renderFullImageForScreenshot(ctx, imageWidth, imageHeight) {
 }
 
 function handleTakeScreenshot() {
-    if (!state.image) {
-        showToast('Please upload a drawing first');
-        return;
-    }
-    
     // Check if canvas is visible
     if (elements.canvas.classList.contains('hidden')) {
         showToast('Canvas is not visible');
@@ -2659,21 +2643,9 @@ function handleTakeScreenshot() {
 }
 
 function createScreenshotFromSelection() {
-    if (!state.image) {
-        showToast('Please upload a drawing first');
-        return;
-    }
-    
     const projectName = elements.projectNameInput.value.trim() || 'Project';
     
-    // Get image position helper
-    const imagePos = getImagePosition();
-    if (!imagePos) {
-        showToast('Error: Could not determine image position');
-        return;
-    }
-    
-    // Validate selection size first (using image-relative coordinates)
+    // Validate selection size
     const selectionWidth = Math.abs(state.screenshotSelectionEnd.x - state.screenshotSelectionStart.x);
     const selectionHeight = Math.abs(state.screenshotSelectionEnd.y - state.screenshotSelectionStart.y);
     
@@ -2683,12 +2655,6 @@ function createScreenshotFromSelection() {
     }
     
     try {
-        // Validate that we have image data
-        if (!state.image || !state.image.complete) {
-            showToast('Error: Image is not loaded');
-            return;
-        }
-        
         // Save current zoom and pan
         const savedZoom = state.zoom;
         const savedPan = { x: state.pan.x, y: state.pan.y };
@@ -2704,35 +2670,14 @@ function createScreenshotFromSelection() {
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 setTimeout(() => {
-            // Get image position at zoom=1.0
-            const imagePosAtZoom1 = getImagePosition();
-            if (!imagePosAtZoom1) {
-                // Restore zoom and pan
-                state.zoom = savedZoom;
-                state.pan = savedPan;
-                renderCanvas();
-                showToast('Error: Could not determine image position');
-                return;
-            }
-            
-            // Convert selection points from image-relative to canvas coordinates at zoom=1.0
-            const startCanvas = {
-                x: state.screenshotSelectionStart.x + imagePosAtZoom1.x,
-                y: state.screenshotSelectionStart.y + imagePosAtZoom1.y
-            };
-            const endCanvas = {
-                x: state.screenshotSelectionEnd.x + imagePosAtZoom1.x,
-                y: state.screenshotSelectionEnd.y + imagePosAtZoom1.y
-            };
-            
+            // Points are stored in direct canvas coordinates
             // Calculate selection rectangle in canvas coordinates at zoom=1.0
-            const selectionX = Math.min(startCanvas.x, endCanvas.x);
-            const selectionY = Math.min(startCanvas.y, endCanvas.y);
-            const selectionWidthAtZoom1 = Math.abs(endCanvas.x - startCanvas.x);
-            const selectionHeightAtZoom1 = Math.abs(endCanvas.y - startCanvas.y);
+            const selectionX = Math.min(state.screenshotSelectionStart.x, state.screenshotSelectionEnd.x);
+            const selectionY = Math.min(state.screenshotSelectionStart.y, state.screenshotSelectionEnd.y);
+            const selectionWidthAtZoom1 = Math.abs(state.screenshotSelectionEnd.x - state.screenshotSelectionStart.x);
+            const selectionHeightAtZoom1 = Math.abs(state.screenshotSelectionEnd.y - state.screenshotSelectionStart.y);
             
             // Validate and clip selection coordinates to canvas bounds
-            // Instead of rejecting, we'll clip the selection to fit within canvas
             const canvasWidth = elements.canvas.width;
             const canvasHeight = elements.canvas.height;
             
@@ -2753,8 +2698,8 @@ function createScreenshotFromSelection() {
                 state.isSelectingScreenshot = false;
                 state.screenshotSelectionStart = null;
                 state.screenshotSelectionEnd = null;
-                state.currentLineStart = null; // Prevent auto-starting a line after screenshot
-                state.cursorPosition = null; // Clear cursor position
+                state.currentLineStart = null;
+                state.cursorPosition = null;
                 elements.canvas.style.cursor = 'default';
                 return;
             }
@@ -2774,8 +2719,8 @@ function createScreenshotFromSelection() {
             // Draw the selected area from the main canvas (canvas is still at zoom=1.0)
             imageCtx.drawImage(
                 elements.canvas,
-                finalSelectionX, finalSelectionY, finalSelectionWidth, finalSelectionHeight,  // source rectangle
-                0, 0, imageCanvas.width, imageCanvas.height  // destination rectangle
+                finalSelectionX, finalSelectionY, finalSelectionWidth, finalSelectionHeight,
+                0, 0, imageCanvas.width, imageCanvas.height
             );
             
             // Now restore zoom and pan
