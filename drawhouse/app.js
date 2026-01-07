@@ -1258,6 +1258,7 @@ function handleCanvasClick(e) {
         
         // Add all parallel lines to state
         const addedLines = [];
+        const groupId = `group-${Date.now()}`;
         parallelLines.forEach((lineData, index) => {
             const line = {
                 id: `line-${Date.now()}-${index}`,
@@ -1266,7 +1267,7 @@ function handleCanvasClick(e) {
                 isWall: state.currentTool === 'walls',
                 isWindow: state.currentTool === 'window',
                 lengthInMeters: lengthInMeters,
-                groupId: `group-${Date.now()}` // Group ID to identify lines that belong together
+                groupId: groupId // Group ID to identify lines that belong together
             };
             
             // Add points if they don't exist
@@ -1287,12 +1288,25 @@ function handleCanvasClick(e) {
             data: { lines: addedLines.map(l => JSON.parse(JSON.stringify(l))) }
         });
         
-        // Continue drawing from the end point (allow continuous drawing)
-        state.currentLineStart = actualPoint;
-        state.cursorPosition = null; // Clear cursor position
+        // Store pending line info for length input modal
+        // Use the first line as base line (for walls it's the only line, for windows it's the middle one)
+        const baseLineForModal = {
+            startPoint: state.currentLineStart,
+            endPoint: actualPoint,
+            isWall: state.currentTool === 'walls',
+            isWindow: state.currentTool === 'window',
+            existingLines: addedLines, // Store the newly created lines
+            currentLengthInMeters: lengthInMeters
+        };
         
-        // Check if a closed polygon was formed
-        checkForClosedPolygon();
+        state.pendingLengthLine = baseLineForModal;
+        
+        // Show length input modal automatically
+        openLengthModal();
+        
+        // Don't continue drawing until length is confirmed
+        state.currentLineStart = null;
+        state.cursorPosition = null; // Clear cursor position
     }
     
     updateUI();
@@ -2921,8 +2935,10 @@ function openLengthModal() {
         : (isWindow ? 'Enter the desired length for the window' : 'Enter the desired length for the wall');
     elements.lengthModal.showModal();
     
-    // If editing, value is already set, otherwise clear it
-    if (!isEditing) {
+    // Set current length as default value (for new lines) or existing value (for editing)
+    if (state.pendingLengthLine.currentLengthInMeters) {
+        elements.lengthInput.value = state.pendingLengthLine.currentLengthInMeters.toFixed(2);
+    } else {
         elements.lengthInput.value = '';
     }
     elements.lengthInput.focus();
@@ -3029,9 +3045,100 @@ function handleLengthSubmit(e) {
         
         const toolName = isWindow ? 'Window' : 'Wall';
         showToast(`${toolName} length updated: ${lengthInMeters.toFixed(2)}m`);
+        
+        // Check if a closed polygon was formed after length adjustment
+        checkForClosedPolygon();
     } else {
-        // This shouldn't happen with new flow, but keep for compatibility
+        // Handle new lines (not editing existing ones)
+        // This happens when user finishes drawing a wall/window
+        const baseLine = state.pendingLengthLine;
+        const isWindow = baseLine.isWindow;
+        const pixelsPerMeter = state.calibration ? state.calibration.pixelsPerMeter : 100;
+        
+        // Calculate new end point based on desired length
+        const dx = baseLine.endPoint.x - baseLine.startPoint.x;
+        const dy = baseLine.endPoint.y - baseLine.startPoint.y;
+        const currentLength = Math.sqrt(dx * dx + dy * dy);
+        
+        if (currentLength === 0) {
+            closeLengthModal();
+            return;
+        }
+        
+        const desiredPixelLength = lengthInMeters * pixelsPerMeter;
+        const scale = desiredPixelLength / currentLength;
+        const newEndPoint = {
+            x: baseLine.startPoint.x + dx * scale,
+            y: baseLine.startPoint.y + dy * scale,
+            id: baseLine.endPoint.id
+        };
+        
+        // Update the end point in state.points
+        const endPointIndex = state.points.findIndex(p => p.id === newEndPoint.id);
+        if (endPointIndex !== -1) {
+            state.points[endPointIndex] = newEndPoint;
+        } else {
+            // If point doesn't exist, add it
+            state.points.push(newEndPoint);
+        }
+        
+        // Update all lines in the group with new end point
+        if (baseLine.existingLines && baseLine.existingLines.length > 0) {
+            const groupId = baseLine.existingLines[0].groupId;
+            
+            // Remove old lines
+            baseLine.existingLines.forEach(oldLine => {
+                const index = state.lines.findIndex(l => l.id === oldLine.id);
+                if (index !== -1) {
+                    state.lines.splice(index, 1);
+                }
+            });
+            
+            // Create new lines with adjusted length
+            const parallelLines = createParallelLines(baseLine.startPoint, newEndPoint, isWindow);
+            
+            // Add new lines
+            parallelLines.forEach((lineData, index) => {
+                const line = {
+                    id: `${groupId}-${index}`,
+                    startPoint: lineData.startPoint,
+                    endPoint: lineData.endPoint,
+                    isWall: baseLine.isWall,
+                    isWindow: baseLine.isWindow,
+                    lengthInMeters: lengthInMeters,
+                    groupId: groupId
+                };
+                
+                // Add points if they don't exist
+                if (!state.points.find(p => p.id === line.startPoint.id)) {
+                    state.points.push(line.startPoint);
+                }
+                if (!state.points.find(p => p.id === line.endPoint.id)) {
+                    state.points.push(line.endPoint);
+                }
+                
+                state.lines.push(line);
+            });
+            
+            // Record action for undo
+            state.actionHistory.push({
+                type: 'add_wall_window',
+                data: { 
+                    lines: baseLine.existingLines.map(l => JSON.parse(JSON.stringify(l))),
+                    adjustedLength: lengthInMeters
+                }
+            });
+        }
+        
         closeLengthModal();
+        updateUI();
+        renderCanvas();
+        
+        // Check if a closed polygon was formed
+        checkForClosedPolygon();
+        
+        const toolName = isWindow ? 'Window' : 'Wall';
+        showToast(`${toolName} created: ${lengthInMeters.toFixed(2)}m`);
     }
 }
 
@@ -3425,6 +3532,17 @@ function initEventListeners() {
     // Length input modal
     elements.lengthForm.addEventListener('submit', handleLengthSubmit);
     elements.cancelLengthBtn.addEventListener('click', closeLengthModal);
+    
+    // Handle modal close (ESC or click outside)
+    elements.lengthModal.addEventListener('close', () => {
+        // If modal was closed without submitting, keep the lines with original length
+        if (state.pendingLengthLine) {
+            // Lines are already added, just clear the pending state
+            state.pendingLengthLine = null;
+            // Check if a closed polygon was formed
+            checkForClosedPolygon();
+        }
+    });
     
     // Collapsible sections
     elements.polygonsHeader.addEventListener('click', () => {
