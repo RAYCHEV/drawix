@@ -178,22 +178,10 @@ function createParallelLines(startPoint, endPoint, isWindow = false) {
             });
         });
     } else {
-        // Wall: 2 parallel lines
-        const offsets = [-thickness / 2, thickness / 2];
-        offsets.forEach(offsetDist => {
-            const perpOffset = getPerpendicularOffset(startPoint, endPoint, offsetDist);
-            lines.push({
-                startPoint: {
-                    x: startPoint.x + perpOffset.x,
-                    y: startPoint.y + perpOffset.y,
-                    id: `point-${Date.now()}-${Math.random()}`
-                },
-                endPoint: {
-                    x: endPoint.x + perpOffset.x,
-                    y: endPoint.y + perpOffset.y,
-                    id: `point-${Date.now()}-${Math.random()}`
-                }
-            });
+        // Wall: single line (no parallel lines) - use original points directly
+        lines.push({
+            startPoint: startPoint,
+            endPoint: endPoint
         });
     }
     
@@ -201,7 +189,7 @@ function createParallelLines(startPoint, endPoint, isWindow = false) {
 }
 
 function calculatePolygonArea(points, calibration) {
-    if (points.length < 3 || !calibration) return 0;
+    if (points.length < 3) return 0;
     
     let area = 0;
     for (let i = 0; i < points.length; i++) {
@@ -211,7 +199,9 @@ function calculatePolygonArea(points, calibration) {
     }
     area = Math.abs(area) / 2;
     
-    const areaInSquareMeters = area / (calibration.pixelsPerMeter * calibration.pixelsPerMeter);
+    // Use calibration if available, otherwise use default scale (100 pixels = 1 meter)
+    const pixelsPerMeter = calibration ? calibration.pixelsPerMeter : 100;
+    const areaInSquareMeters = area / (pixelsPerMeter * pixelsPerMeter);
     return areaInSquareMeters;
 }
 
@@ -457,6 +447,44 @@ function renderCanvas() {
             ctx.fill();
             ctx.stroke();
             
+            // Draw area label in the center of the polygon
+            if (polygon.areaInSquareMeters > 0) {
+                // Calculate center point of polygon
+                const centerX = polygon.points.reduce((sum, p) => sum + p.x, 0) / polygon.points.length;
+                const centerY = polygon.points.reduce((sum, p) => sum + p.y, 0) / polygon.points.length;
+                const centerCanvas = toCanvasPoint({ x: centerX, y: centerY });
+                
+                ctx.save();
+                ctx.scale(1 / state.zoom, 1 / state.zoom);
+                
+                const areaText = `${polygon.areaInSquareMeters.toFixed(2)} m²`;
+                ctx.font = '600 18px Inter, sans-serif';
+                const metrics = ctx.measureText(areaText);
+                const padding = 8;
+                
+                const bgX = centerCanvas.x * state.zoom - metrics.width / 2 - padding;
+                const bgY = centerCanvas.y * state.zoom - 12 - padding;
+                const bgWidth = metrics.width + padding * 2;
+                const bgHeight = 28 + padding * 2;
+                
+                // Draw background
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+                ctx.strokeStyle = polygonColor;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.roundRect(bgX, bgY, bgWidth, bgHeight, 6);
+                ctx.fill();
+                ctx.stroke();
+                
+                // Draw text
+                ctx.fillStyle = polygonColor;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(areaText, centerCanvas.x * state.zoom, centerCanvas.y * state.zoom);
+                
+                ctx.restore();
+            }
+            
             // Draw merged polygons (polygons that were merged into this one)
             if (polygon.mergedPolygons && polygon.mergedPolygons.length > 0) {
                 polygon.mergedPolygons.forEach(mergedPolygon => {
@@ -569,9 +597,9 @@ function renderCanvas() {
         ctx.lineTo(endPoint.x, endPoint.y);
         ctx.stroke();
         
-        // Draw length label (only show label once per wall/window group, on the middle line for windows)
+        // Draw length label (only show label once per wall/window group)
         if (state.showLengthLabels && line.lengthInMeters !== undefined && line.lengthInMeters > 0) {
-            // For windows, only show label on the middle line (check if this is the middle line by groupId)
+            // For windows, only show label on the middle line (index 1)
             if (isWindow && line.id && !line.id.endsWith('-1')) {
                 // Skip non-middle lines for windows (show only on middle line which is index 1)
             } else {
@@ -853,8 +881,8 @@ function renderCanvas() {
 function checkForClosedPolygon() {
     const pointConnections = new Map();
     
+    // Use all lines (walls, windows, etc.) for polygon detection
     state.lines.forEach(line => {
-        
         if (!pointConnections.has(line.startPoint.id)) {
             pointConnections.set(line.startPoint.id, new Set());
         }
@@ -903,6 +931,7 @@ function checkForClosedPolygon() {
                 .map(id => state.points.find(p => p.id === id))
                 .filter(Boolean);
             
+            // Include all lines that are part of the polygon path
             const polygonLines = state.lines.filter(line =>
                 polygonPath.includes(line.startPoint.id) && polygonPath.includes(line.endPoint.id)
             );
@@ -1261,6 +1290,9 @@ function handleCanvasClick(e) {
         // Continue drawing from the end point (allow continuous drawing)
         state.currentLineStart = actualPoint;
         state.cursorPosition = null; // Clear cursor position
+        
+        // Check if a closed polygon was formed
+        checkForClosedPolygon();
     }
     
     updateUI();
