@@ -123,8 +123,7 @@ const elements = {
     // Collapsible headers
     polygonsHeader: document.getElementById('polygonsHeader'),
     pointsHeader: document.getElementById('pointsHeader'),
-    instructionsHeader: document.getElementById('instructionsHeader'),
-    shortcutsHeader: document.getElementById('shortcutsHeader')
+    instructionsHeader: document.getElementById('instructionsHeader')
 };
 
 // ==================== Utility Functions ====================
@@ -1528,8 +1527,8 @@ function handleKeyDown(e) {
         return;
     }
     
-    // X key activates subtract tool (X/ѝ/Ь)
-    if (isKeyMatch(e.key, 'x', 'X', 'ѝ', 'Ь')) {
+    // X key activates subtract tool (X/Х)
+    if (isKeyMatch(e.key, 'x', 'X', 'х', 'Х')) {
         if (isTyping) {
             return;
         }
@@ -3506,12 +3505,6 @@ function initEventListeners() {
         toggleCollapsible(elements.instructionsHeader, document.getElementById('instructionsContent'));
     });
     
-    if (elements.shortcutsHeader) {
-        elements.shortcutsHeader.addEventListener('click', () => {
-            toggleCollapsible(elements.shortcutsHeader, document.getElementById('shortcutsContent'));
-        });
-    }
-    
     // Screenshot button
     elements.screenshotBtn.addEventListener('click', handleTakeScreenshot);
     
@@ -3644,9 +3637,6 @@ function init() {
     }
     if (elements.instructionsHeader) {
         elements.instructionsHeader.setAttribute('aria-expanded', 'false');
-    }
-    if (elements.shortcutsHeader) {
-        elements.shortcutsHeader.setAttribute('aria-expanded', 'false');
     }
     
     // Initialize event listeners
