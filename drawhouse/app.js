@@ -457,15 +457,25 @@ function renderCanvas() {
                 ctx.save();
                 ctx.scale(1 / state.zoom, 1 / state.zoom);
                 
+                // Get room name
+                const roomName = polygon.name || `Room ${state.polygons.indexOf(polygon) + 1}`;
                 const areaText = `${polygon.areaInSquareMeters.toFixed(2)} m²`;
-                ctx.font = '600 18px Inter, sans-serif';
-                const metrics = ctx.measureText(areaText);
-                const padding = 8;
+                const fullText = `${roomName}\n${areaText}`;
                 
-                const bgX = centerCanvas.x * state.zoom - metrics.width / 2 - padding;
-                const bgY = centerCanvas.y * state.zoom - 12 - padding;
-                const bgWidth = metrics.width + padding * 2;
-                const bgHeight = 28 + padding * 2;
+                ctx.font = '600 18px Inter, sans-serif';
+                const nameMetrics = ctx.measureText(roomName);
+                ctx.font = '500 16px Inter, sans-serif';
+                const areaMetrics = ctx.measureText(areaText);
+                
+                const maxWidth = Math.max(nameMetrics.width, areaMetrics.width);
+                const padding = 10;
+                const lineHeight = 22;
+                const totalHeight = lineHeight * 2 + padding * 2;
+                
+                const bgX = centerCanvas.x * state.zoom - maxWidth / 2 - padding;
+                const bgY = centerCanvas.y * state.zoom - totalHeight / 2;
+                const bgWidth = maxWidth + padding * 2;
+                const bgHeight = totalHeight;
                 
                 // Draw background
                 ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
@@ -476,11 +486,16 @@ function renderCanvas() {
                 ctx.fill();
                 ctx.stroke();
                 
-                // Draw text
+                // Draw room name
                 ctx.fillStyle = polygonColor;
                 ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(areaText, centerCanvas.x * state.zoom, centerCanvas.y * state.zoom);
+                ctx.textBaseline = 'top';
+                ctx.font = '600 18px Inter, sans-serif';
+                ctx.fillText(roomName, centerCanvas.x * state.zoom, bgY + padding);
+                
+                // Draw area
+                ctx.font = '500 16px Inter, sans-serif';
+                ctx.fillText(areaText, centerCanvas.x * state.zoom, bgY + padding + lineHeight);
                 
                 ctx.restore();
             }
@@ -981,7 +996,7 @@ function checkForClosedPolygon() {
                 lines: polygonLines,
                 areaInSquareMeters: area,
                 isClosed: true,
-                name: `Polygon ${state.polygons.length + 1}`,
+                name: `Room ${state.polygons.length + 1}`,
                 color: DEFAULT_POLYGON_COLOR // Default color, can be changed via color picker
             };
             
@@ -1859,7 +1874,7 @@ function handleMouseUp(e) {
             lines: rectangleLines,
             areaInSquareMeters: area,
             isClosed: true,
-            name: `Rectangle ${state.polygons.length + 1}`,
+            name: `Room ${state.polygons.length + 1}`,
             isRectangle: true,
             color: DEFAULT_POLYGON_COLOR // Default color, can be changed via color picker
         };
@@ -3193,9 +3208,12 @@ function finishPolygonRename(inputEl) {
         } else {
             // If empty, restore original name
             const index = state.polygons.findIndex(p => p.id === polygonId);
-            polygon.name = `Polygon ${index + 1}`;
+            polygon.name = `Room ${index + 1}`;
             nameText.textContent = polygon.name;
         }
+        
+        // Re-render canvas to show updated name in the center
+        renderCanvas();
     }
     
     inputEl.classList.add('hidden');
@@ -3377,7 +3395,7 @@ function updateUI() {
         // Attach event listeners for color pickers
         attachPolygonColorListeners();
     } else {
-        elements.polygonsList.innerHTML = '<p class="info-text">No polygons detected</p>';
+        elements.polygonsList.innerHTML = '<p class="info-text">No rooms detected</p>';
     }
     
     // Update button states
