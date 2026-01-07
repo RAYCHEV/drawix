@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=0">
+    <title>InventoryPro - Scan</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        border: "hsl(214.3 31.8% 91.4%)",
+                        input: "hsl(214.3 31.8% 91.4%)",
+                        ring: "hsl(24 95% 53%)",
+                        background: "hsl(210 40% 98%)",
+                        foreground: "hsl(222 47% 11%)",
+                        primary: {
+                            DEFAULT: "hsl(24 95% 53%)",
+                            foreground: "hsl(0 0% 100%)",
+                        },
+                        secondary: {
+                            DEFAULT: "hsl(210 40% 96.1%)",
+                            foreground: "hsl(222 47% 11%)",
+                        },
+                        muted: {
+                            DEFAULT: "hsl(210 40% 96.1%)",
+                            foreground: "hsl(215.4 16.3% 46.9%)",
+                        },
+                        accent: {
+                            DEFAULT: "hsl(210 40% 96.1%)",
+                            foreground: "hsl(222 47% 11%)",
+                        },
+                        card: {
+                            DEFAULT: "hsl(0 0% 100%)",
+                            foreground: "hsl(222 47% 11%)",
+                        },
+                    },
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-background text-foreground font-sans antialiased">
+    
+    <div class="min-h-screen bg-black flex flex-col max-w-md mx-auto shadow-2xl relative overflow-hidden">
+        
+        <main class="flex-1 flex flex-col items-center justify-center p-6 space-y-6">
+            <!-- Scanner Placeholder -->
+            <div class="relative w-full aspect-[3/4] bg-black rounded-lg overflow-hidden flex flex-col items-center justify-center group">
+                <!-- Camera feed placeholder -->
+                <div class="absolute inset-0 bg-slate-900/50 flex items-center justify-center">
+                  <p class="text-slate-400 text-sm">Camera Feed Placeholder</p>
+                </div>
+          
+                <!-- Scanning Overlay -->
+                <div class="absolute inset-0 border-2 border-white/20 m-8 rounded-lg">
+                  <div class="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
+                  <div class="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
+                  <div class="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
+                  <div class="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+                  
+                  <!-- Animated Scan Line -->
+                  <div class="absolute left-0 right-0 h-0.5 bg-orange-500/80 shadow-[0_0_10px_rgba(249,115,22,0.8)] animate-[scan_2s_ease-in-out_infinite]" style="animation: scan 2s ease-in-out infinite;"></div>
+                </div>
+          
+                <div class="absolute bottom-8 text-white bg-black/50 px-4 py-2 rounded-full backdrop-blur-md flex items-center gap-2">
+                  <i data-lucide="scan-line" class="w-4 h-4 animate-pulse"></i>
+                  <span class="text-xs font-mono">Scanning...</span>
+                </div>
+            </div>
+
+            <div class="text-center space-y-2">
+                <h2 class="text-white font-bold text-lg">Scan Barcode</h2>
+                <p class="text-slate-400 text-sm">Align the barcode within the frame</p>
+            </div>
+        </main>
+
+        <div class="p-6 bg-slate-900 border-t border-slate-800">
+            <button class="w-full h-12 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-secondary text-secondary-foreground hover:bg-secondary/80 gap-2">
+              <i data-lucide="keyboard" class="w-4 h-4"></i>
+              Enter Code Manually
+            </button>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-border px-4 py-2 z-50 max-w-md mx-auto">
+            <div class="flex justify-between items-end">
+                <a href="index.html" class="flex flex-col items-center gap-1 transition-all duration-200 cursor-pointer text-muted-foreground hover:text-foreground">
+                    <div class="flex items-center justify-center rounded-full transition-all w-10 h-10">
+                        <i data-lucide="home" class="w-6 h-6"></i>
+                    </div>
+                    <span class="text-[10px] font-medium tracking-wide uppercase">Home</span>
+                </a>
+                <a href="receive.html" class="flex flex-col items-center gap-1 transition-all duration-200 cursor-pointer text-muted-foreground hover:text-foreground">
+                    <div class="flex items-center justify-center rounded-full transition-all w-10 h-10">
+                        <i data-lucide="package-plus" class="w-6 h-6"></i>
+                    </div>
+                    <span class="text-[10px] font-medium tracking-wide uppercase">Receive</span>
+                </a>
+                <a href="scan.html" class="flex flex-col items-center gap-1 transition-all duration-200 cursor-pointer -mt-6">
+                    <div class="flex items-center justify-center rounded-full transition-all w-14 h-14 bg-primary text-white shadow-lg shadow-orange-500/30">
+                        <i data-lucide="scan" class="w-7 h-7"></i>
+                    </div>
+                    <span class="text-[10px] font-medium tracking-wide uppercase">Scan</span>
+                </a>
+                <a href="pick.html" class="flex flex-col items-center gap-1 transition-all duration-200 cursor-pointer text-muted-foreground hover:text-foreground">
+                    <div class="flex items-center justify-center rounded-full transition-all w-10 h-10">
+                        <i data-lucide="clipboard-list" class="w-6 h-6"></i>
+                    </div>
+                    <span class="text-[10px] font-medium tracking-wide uppercase">Pick</span>
+                </a>
+                <a href="profile.html" class="flex flex-col items-center gap-1 transition-all duration-200 cursor-pointer text-muted-foreground hover:text-foreground">
+                    <div class="flex items-center justify-center rounded-full transition-all w-10 h-10">
+                        <i data-lucide="user" class="w-6 h-6"></i>
+                    </div>
+                    <span class="text-[10px] font-medium tracking-wide uppercase">Profile</span>
+                </a>
+            </div>
+        </nav>
+    </div>
+
+    <script>
+        lucide.createIcons();
+    </script>
+    <style>
+        @keyframes scan {
+            0% { top: 0%; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+    </style>
+</body>
+</html>

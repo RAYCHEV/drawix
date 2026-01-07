@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=0">
+    <title>InventoryPro - Pack</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        border: "hsl(214.3 31.8% 91.4%)",
+                        input: "hsl(214.3 31.8% 91.4%)",
+                        ring: "hsl(24 95% 53%)",
+                        background: "hsl(210 40% 98%)",
+                        foreground: "hsl(222 47% 11%)",
+                        primary: {
+                            DEFAULT: "hsl(24 95% 53%)",
+                            foreground: "hsl(0 0% 100%)",
+                        },
+                        secondary: {
+                            DEFAULT: "hsl(210 40% 96.1%)",
+                            foreground: "hsl(222 47% 11%)",
+                        },
+                        muted: {
+                            DEFAULT: "hsl(210 40% 96.1%)",
+                            foreground: "hsl(215.4 16.3% 46.9%)",
+                        },
+                        accent: {
+                            DEFAULT: "hsl(210 40% 96.1%)",
+                            foreground: "hsl(222 47% 11%)",
+                        },
+                        card: {
+                            DEFAULT: "hsl(0 0% 100%)",
+                            foreground: "hsl(222 47% 11%)",
+                        },
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-background text-foreground font-sans antialiased">
+    
+    <div class="min-h-screen bg-background flex flex-col max-w-md mx-auto border-x border-border shadow-2xl relative overflow-hidden bg-white">
+        
+        <main class="flex-1 overflow-y-auto pb-20 scrollbar-hide p-6 flex flex-col h-full">
+            <header class="mb-8">
+                <h1 className="text-2xl font-bold">Packing Station</h1>
+                <p className="text-muted-foreground text-slate-500">Scan items to verify shipment</p>
+            </header>
+      
+            <div class="flex-1 flex flex-col items-center justify-center space-y-8 opacity-50 border-2 border-dashed border-border rounded-xl bg-slate-100 m-4 py-12">
+                <i data-lucide="box" class="w-16 h-16 text-slate-400"></i>
+                <p class="text-sm font-medium text-slate-500">Scan Pick Container</p>
+            </div>
+      
+            <div class="space-y-4 mt-auto">
+                <input placeholder="Or enter container ID" class="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm text-center font-mono">
+                <button class="w-full h-12 gap-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90">
+                  <i data-lucide="printer" class="w-4 h-4"></i>
+                  Print Label
+                </button>
+            </div>
+        </main>
+
+        <!-- Navigation -->
+        <nav class="fixed bottom-0 left-0 right-0 bg-card border-t border-border px-4 py-2 z-50 max-w-md mx-auto bg-white">
+            <div class="flex justify-between items-end">
+                <a href="index.html" class="flex flex-col items-center gap-1 transition-all duration-200 cursor-pointer text-muted-foreground hover:text-foreground">
+                    <div class="flex items-center justify-center rounded-full transition-all w-10 h-10">
+                        <i data-lucide="home" class="w-6 h-6"></i>
+                    </div>
+                    <span class="text-[10px] font-medium tracking-wide uppercase">Home</span>
+                </a>
+
+                <a href="receive.html" class="flex flex-col items-center gap-1 transition-all duration-200 cursor-pointer text-muted-foreground hover:text-foreground">
+                    <div class="flex items-center justify-center rounded-full transition-all w-10 h-10">
+                        <i data-lucide="package-plus" class="w-6 h-6"></i>
+                    </div>
+                    <span class="text-[10px] font-medium tracking-wide uppercase">Receive</span>
+                </a>
+
+                <a href="scan.html" class="flex flex-col items-center gap-1 transition-all duration-200 cursor-pointer -mt-6">
+                    <div class="flex items-center justify-center rounded-full transition-all w-14 h-14 bg-primary text-white shadow-lg shadow-orange-500/30">
+                        <i data-lucide="scan" class="w-7 h-7"></i>
+                    </div>
+                    <span class="text-[10px] font-medium tracking-wide uppercase text-muted-foreground">Scan</span>
+                </a>
+
+                <a href="pick.html" class="flex flex-col items-center gap-1 transition-all duration-200 cursor-pointer text-muted-foreground hover:text-foreground">
+                    <div class="flex items-center justify-center rounded-full transition-all w-10 h-10">
+                        <i data-lucide="clipboard-list" class="w-6 h-6"></i>
+                    </div>
+                    <span class="text-[10px] font-medium tracking-wide uppercase">Pick</span>
+                </a>
+
+                <a href="profile.html" class="flex flex-col items-center gap-1 transition-all duration-200 cursor-pointer text-muted-foreground hover:text-foreground">
+                    <div class="flex items-center justify-center rounded-full transition-all w-10 h-10">
+                        <i data-lucide="user" class="w-6 h-6"></i>
+                    </div>
+                    <span class="text-[10px] font-medium tracking-wide uppercase">Profile</span>
+                </a>
+            </div>
+        </nav>
+    </div>
+
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>
