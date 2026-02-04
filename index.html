@@ -71,7 +71,7 @@
             <div class="panel-section">
                 <h2 class="panel-section-title">Upload Drawing</h2>
                 <label for="fileInput" class="upload-area" id="uploadArea" data-testid="upload-area" title="Click to upload or drag and drop a file">
-                    <input type="file" id="fileInput" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,application/pdf,.jpg,.jpeg,.png,.gif,.webp,.pdf" style="display: none;">
+                    <input type="file" id="fileInput" class="hidden-input" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,application/pdf,.jpg,.jpeg,.png,.gif,.webp,.pdf">
                     <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
                     <p class="upload-text">Click to upload</p>
                     <p class="upload-subtext">JPG, PNG or PDF</p>
@@ -81,14 +81,13 @@
             <!-- Project Name & Screenshot -->
             <div class="panel-section">
                 <h2 class="panel-section-title">Project</h2>
-                <div class="form-group" style="margin-bottom: 0.75rem;">
-                    <label for="projectNameInput" class="form-label" style="font-size: 0.75rem; margin-bottom: 0.375rem;">Project Name</label>
+                <div class="form-group form-group-compact">
+                    <label for="projectNameInput" class="form-label form-label-compact">Project Name</label>
                     <input 
                         type="text" 
                         id="projectNameInput" 
-                        class="form-input" 
+                        class="form-input form-input-compact" 
                         placeholder="Enter project name"
-                        style="font-size: 0.875rem; padding: 0.5rem 0.75rem;"
                     >
                 </div>
                 <button class="control-btn control-btn-primary" id="screenshotBtn" title="Take screenshot with project information">
