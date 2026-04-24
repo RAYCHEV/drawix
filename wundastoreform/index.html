@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>WundaTrade Enquiry Form</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet"
+  >
+
+  <style>
+    :root {
+      --wt-red: #b10000;
+      --wt-red-dark: #8f0000;
+      --wt-dark-grey: #3a3a3a;
+      --wt-light-grey: #f1f1f1;
+      --wt-success: #289766;
+
+      --wt-white: #ffffff;
+      --wt-text: #222222;
+      --wt-border: #cfcfcf;
+      --wt-border-dark: #b8b8b8;
+      --wt-error: #b10000;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 40px 20px;
+      font-family: "Fira Sans", Arial, sans-serif;
+      background: var(--wt-light-grey);
+      color: var(--wt-text);
+    }
+
+    .form-wrapper {
+      max-width: 620px;
+      margin: 0 auto;
+      background: var(--wt-white);
+      padding: 34px;
+      border: 1px solid #dddddd;
+      border-radius: 10px;
+      box-shadow: 0 6px 22px rgba(0, 0, 0, 0.08);
+    }
+
+    .form-header {
+      margin-bottom: 26px;
+      padding-bottom: 18px;
+      border-bottom: 3px solid var(--wt-red);
+    }
+
+    .form-header h2 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      line-height: 1.2;
+      color: var(--wt-dark-grey);
+      font-weight: 600;
+    }
+
+    .form-header p {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.5;
+      color: #555555;
+    }
+
+    .form-group {
+      margin-bottom: 18px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--wt-dark-grey);
+    }
+
+    .required {
+      color: var(--wt-red);
+    }
+
+    .optional {
+      font-weight: 400;
+      color: #777777;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      padding: 13px 14px;
+      border: 1px solid var(--wt-border);
+      border-radius: 6px;
+      font-size: 16px;
+      font-family: inherit;
+      color: var(--wt-text);
+      background: #ffffff;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+      color: #8a8a8a;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      outline: none;
+      border-color: var(--wt-red);
+      box-shadow: 0 0 0 3px rgba(177, 0, 0, 0.12);
+    }
+
+    textarea {
+      min-height: 130px;
+      resize: vertical;
+    }
+
+    .error {
+      display: none;
+      margin-top: 6px;
+      font-size: 14px;
+      color: var(--wt-error);
+      font-weight: 400;
+    }
+
+    .form-group.invalid .error {
+      display: block;
+    }
+
+    .form-group.invalid input,
+    .form-group.invalid select,
+    .form-group.invalid textarea {
+      border-color: var(--wt-error);
+    }
+
+    .form-actions {
+      margin-top: 24px;
+    }
+
+    .submit-btn {
+      width: 100%;
+      padding: 15px 18px;
+      border: none;
+      border-radius: 6px;
+      background: var(--wt-red);
+      color: var(--wt-white);
+      font-size: 16px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
+    }
+
+    .submit-btn:hover {
+      background: var(--wt-red-dark);
+      box-shadow: 0 5px 16px rgba(177, 0, 0, 0.22);
+    }
+
+    .submit-btn:active {
+      transform: translateY(1px);
+      box-shadow: none;
+    }
+
+    .success-message {
+      display: none;
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-radius: 6px;
+      background: rgba(40, 151, 102, 0.10);
+      border: 1px solid rgba(40, 151, 102, 0.35);
+      color: var(--wt-success);
+      font-size: 15px;
+      font-weight: 500;
+    }
+
+    @media (max-width: 640px) {
+      body {
+        padding: 20px 14px;
+      }
+
+      .form-wrapper {
+        padding: 24px;
+      }
+
+      .form-header h2 {
+        font-size: 24px;
+      }
+    }
+
+    @media (max-width: 420px) {
+      .form-wrapper {
+        padding: 18px;
+        border-radius: 8px;
+      }
+
+      .form-header h2 {
+        font-size: 22px;
+      }
+
+      label {
+        margin-bottom: 6px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="form-wrapper">
+    <div class="form-header">
+      <h2>Trade &amp; Project Enquiry</h2>
+      <p>
+        Send us your details and we will get back to you about product pricing,
+        system estimates or account enquiries.
+      </p>
+    </div>
+
+    <form id="contactForm" novalidate>
+      <div class="form-group" id="nameGroup">
+        <label for="name">
+          Name <span class="required">*</span>
+        </label>
+
+        <input
+          type="text"
+          id="name"
+          name="name"
+          autocomplete="name"
+          required
+        >
+
+        <div class="error">Please enter your name.</div>
+      </div>
+
+      <div class="form-group" id="emailGroup">
+        <label for="email">
+          Email <span class="required">*</span>
+        </label>
+
+        <input
+          type="email"
+          id="email"
+          name="email"
+          autocomplete="email"
+          inputmode="email"
+          required
+        >
+
+        <div class="error">Please enter a valid email address.</div>
+      </div>
+
+      <div class="form-group" id="phoneGroup">
+        <label for="phone">
+          Phone <span class="required">*</span>
+        </label>
+
+        <input
+          type="tel"
+          id="phone"
+          name="phone"
+          autocomplete="tel"
+          inputmode="tel"
+          placeholder="e.g. +359 88 123 4567"
+          required
+        >
+
+        <div class="error">Please enter a valid phone number.</div>
+      </div>
+
+      <div class="form-group" id="enquiryGroup">
+        <label for="enquiryType">
+          Enquiry type <span class="required">*</span>
+        </label>
+
+        <select id="enquiryType" name="enquiryType" required>
+          <option value="">Please select</option>
+          <option value="Product Professional & Volume Pricing">
+            Product Professional &amp; Volume Pricing
+          </option>
+          <option value="System Estimate">
+            System Estimate
+          </option>
+          <option value="Account Enquiry">
+            Account Enquiry
+          </option>
+        </select>
+
+        <div class="error">Please select an enquiry type.</div>
+      </div>
+
+      <div class="form-group" id="messageGroup">
+        <label for="message">
+          Message <span class="optional">(optional)</span>
+        </label>
+
+        <textarea
+          id="message"
+          name="message"
+          autocomplete="off"
+          placeholder="Tell us a little more about your enquiry..."
+        ></textarea>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="submit-btn">
+          Submit
+        </button>
+      </div>
+
+      <div class="success-message" id="successMessage">
+        Thank you. Your enquiry has been submitted successfully.
+      </div>
+    </form>
+  </div>
+
+  <script>
+    var form = document.getElementById("contactForm");
+
+    var nameInput = document.getElementById("name");
+    var emailInput = document.getElementById("email");
+    var phoneInput = document.getElementById("phone");
+    var enquiryTypeInput = document.getElementById("enquiryType");
+    var messageInput = document.getElementById("message");
+
+    var nameGroup = document.getElementById("nameGroup");
+    var emailGroup = document.getElementById("emailGroup");
+    var phoneGroup = document.getElementById("phoneGroup");
+    var enquiryGroup = document.getElementById("enquiryGroup");
+
+    var successMessage = document.getElementById("successMessage");
+
+    function setValid(group) {
+      group.classList.remove("invalid");
+    }
+
+    function setInvalid(group) {
+      group.classList.add("invalid");
+    }
+
+    function validateName() {
+      var nameValue = nameInput.value.trim();
+
+      if (nameValue.length > 0) {
+        setValid(nameGroup);
+        return true;
+      }
+
+      setInvalid(nameGroup);
+      return false;
+    }
+
+    function validateEmail() {
+      var emailValue = emailInput.value.trim();
+
+      if (emailValue.length > 0 && emailInput.validity.valid) {
+        setValid(emailGroup);
+        return true;
+      }
+
+      setInvalid(emailGroup);
+      return false;
+    }
+
+    function validatePhone() {
+      var phoneValue = phoneInput.value.trim();
+
+      var digitsOnly = phoneValue.replace(/\D/g, "");
+      var isValid = digitsOnly.length >= 7 && digitsOnly.length <= 15;
+
+      if (isValid) {
+        setValid(phoneGroup);
+        return true;
+      }
+
+      setInvalid(phoneGroup);
+      return false;
+    }
+
+    function validateEnquiryType() {
+      if (enquiryTypeInput.value !== "") {
+        setValid(enquiryGroup);
+        return true;
+      }
+
+      setInvalid(enquiryGroup);
+      return false;
+    }
+
+    form.addEventListener("submit", function(event) {
+      event.preventDefault();
+
+      var isNameValid = validateName();
+      var isEmailValid = validateEmail();
+      var isPhoneValid = validatePhone();
+      var isEnquiryValid = validateEnquiryType();
+
+      if (
+        isNameValid &&
+        isEmailValid &&
+        isPhoneValid &&
+        isEnquiryValid
+      ) {
+        successMessage.style.display = "block";
+
+        var formData = {
+          name: nameInput.value.trim(),
+          email: emailInput.value.trim(),
+          phone: phoneInput.value.trim(),
+          enquiryType: enquiryTypeInput.value,
+          message: messageInput.value.trim()
+        };
+
+        console.log(formData);
+
+        /*
+          Here you can later connect the form to:
+          - Shopify contact form
+          - Formspree
+          - Klaviyo
+          - custom backend/API endpoint
+          - email service
+        */
+
+        form.reset();
+      } else {
+        successMessage.style.display = "none";
+      }
+    });
+
+    nameInput.addEventListener("input", validateName);
+    emailInput.addEventListener("input", validateEmail);
+    phoneInput.addEventListener("input", validatePhone);
+    enquiryTypeInput.addEventListener("change", validateEnquiryType);
+  </script>
+
+</body>
+</html>
